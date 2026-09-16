@@ -531,6 +531,9 @@ async function renderReparto(){
   const tasks = repTasks();
   const diariaTasks = repDiarias.map(d => ({ kind:'diaria', base:String(d.id), hab:d.texto }));
   const optsFor = a => '<option value="">Sin asignar</option>' + repEmp.map(e => `<option value="${esc(e.nombre)}"${a === e.nombre ? ' selected' : ''}>${esc(e.nombre)}</option>`).join('');
+  const optsForDaily = a => '<option value="">Sin asignar</option>'
+    + `<option value="__TODAS__"${a === '__TODAS__' ? ' selected' : ''}>Todas</option>`
+    + repEmp.map(e => `<option value="${esc(e.nombre)}"${a === e.nombre ? ' selected' : ''}>${esc(e.nombre)}</option>`).join('');
   const chips = repEmp.map(e => `<span class="chip">${esc(e.nombre)}<span class="x" data-emp="${e.id}">×</span></span>`).join('') || '<span style="color:var(--soft);font-size:14px">Ninguna todavía</span>';
   const diariaChips = repDiarias.map(d => `<span class="chip">${esc(d.texto)}<span class="x" data-diaria="${d.id}">×</span></span>`).join('') || '<span style="color:var(--soft);font-size:14px">Ninguna todavía</span>';
   const order = ['piso','toalla','cliente','fondo','pextra'];
@@ -577,7 +580,7 @@ async function renderReparto(){
       diariaHtml += `<div class="rep-item ${done ? 'hecho' : ''}">
         <div class="rtop"><span class="hab">${esc(t.hab)}</span>${repTag(t)}${done ? '<span class="pill hecho">✓ hecho</span>' : '<span class="pill pend">pendiente</span>'}</div>
         <div class="rep-row">
-          <select data-tk="${esc(repKey(t))}">${optsFor(a)}</select>
+          <select data-tk="${esc(repKey(t))}">${optsForDaily(a)}</select>
           <button class="supBtn ${isSup ? 'on' : ''}" data-k="${t.kind}" data-b="${esc(t.base)}">${isSup ? '✓ Supervisado' : 'Supervisado'}</button>
         </div></div>`;
     });
