@@ -477,22 +477,27 @@ $('nextDay').addEventListener('click', () => { curISO = toISO(addDays(fromISO(cu
 /* ====== realtime: si cambia el parte o el cierre, avisar/refrescar ====== */
 function subscribe(){
   if (!sb) return;
+  try{ sb.removeAllChannels(); }catch(e){}
   try{
     sb.channel('cierre_parte').on('postgres_changes', { event: '*', schema: 'public', table: 'limp_parte' }, payload => {
       const row = payload.new || payload.old || {};
       if (row.fecha !== curISO) return;
       if (activeTab === 'parte') loadParte(); else $('syncBanner').style.display = 'block';
-    }).subscribe();
+    }).subscribe(status => { if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setTimeout(subscribe, 3000); });
   }catch(e){}
   try{
     sb.channel('cierre_cierre').on('postgres_changes', { event: '*', schema: 'public', table: 'limp_cierre' }, payload => {
       const row = payload.new || payload.old || {};
       if (row.src === SB_TAB) return;          /* cambio nuestro */
       if (row.fecha === curISO) loadParte();   /* otra persona marcó algo */
-    }).subscribe();
+    }).subscribe(status => { if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setTimeout(subscribe, 3000); });
   }catch(e){}
 }
 $('syncBanner').addEventListener('click', () => { $('syncBanner').style.display = 'none'; loadParte(); });
+/* si el celu se bloquea y se desbloquea (o cambia de pestaña y vuelve), refrescamos al toque
+   en vez de esperar al próximo tick del polling — así nunca se ve "colgado". */
+document.addEventListener('visibilitychange', () => { if (!document.hidden && activeTab === 'parte') loadParte(); });
+let lastParteRefresh = null;
 
 /* ==================== REPARTO + SUPERVISIÓN (agregado) ==================== */
 /* Lee el mismo parte (limp_parte) y reparte cada tarea entre las empleadas.    */
@@ -807,6 +812,7 @@ async function loadForecastDays(){
 }
 async function renderParteView(){
   const box = $('parteWrap'); if (!box) return;
+  lastParteRefresh = Date.now();
   const pisos = (parte && parte.pisos) || [];
   const toallas = (parte && parte.toallas) || [];
   const clientes = (parte && parte.clientes) || [];
@@ -859,7 +865,7 @@ async function renderParteView(){
         <span><i style="background:#C0392B"></i>salidas</span>
       </div>
     </div>
-    <div class="piv-footer">Se actualiza solo, en vivo · ART Limpieza</div>
+    <div class="piv-footer">Se actualiza solo, en vivo · <span id="pivUpdated">actualizado ahora</span> · ART Limpieza</div>
   </div>`;
   loadForecastDays().then(days => {
     const fc = $('pivFc'); if (!fc) return;
@@ -895,6 +901,11 @@ $('tabParte').addEventListener('click', () => setTab('parte'));
 /* mantener el reparto y la vista de parte sincronizados cuando se recarga (día / realtime) */
 try{ const _lp = loadParte; loadParte = async function(){ await _lp(); if (activeTab === 'reparto') renderReparto(); if (activeTab === 'parte') renderParteView(); }; }catch(e){}
 setInterval(() => { if (activeTab === 'parte') loadParte(); }, 6000);
+setInterval(() => {
+  const el = $('pivUpdated'); if (!el || !lastParteRefresh) return;
+  const s = Math.round((Date.now() - lastParteRefresh) / 1000);
+  el.textContent = s < 3 ? 'actualizado ahora' : 'actualizado hace ' + s + 's';
+}, 1000);
 setInterval(() => { if (activeTab === 'reparto') renderReparto(); }, 8000);
 /* ==================== fin Reparto + supervisión ==================== */
 
