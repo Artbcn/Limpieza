@@ -167,6 +167,7 @@ const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function lsGet(k, fallback){ try{ const v = localStorage.getItem(k); return v == null ? fallback : JSON.parse(v); }catch(e){ return fallback; } }
 const SB_TAB = Math.random().toString(36).slice(2);
 let sb = null;
 try{ if (SB_URL && SB_KEY && window.supabase){ sb = window.supabase.createClient(SB_URL, SB_KEY); } }catch(e){ sb = null; }
@@ -508,7 +509,65 @@ async function repLoadExtraLogs(){
 
 /* tareas extra que la ENCARGADA agrega a mano por apartamento en el Reparto
    (ej: descalcificar cafetera, revisar llave...) — las ve la empleada asignada en su app */
-const EXTRA_SUGERENCIAS = ['Descalcificar cafetera', 'Revisar llave', 'Revisar desagüe cocina', 'Repasar baño'];
+/* ================= Sugerencias de "tarea extra" = Limpiezas de fondo asignadas a este apto ================= */
+/* Lee el mismo localStorage que la app de Andrés (recepcion), ya que ambas viven bajo el mismo
+   origen artbcn.github.io — así evitamos duplicar la configuración en dos lugares. Solo LECTURA acá. */
+const lastDayOfMonth = (y, m) => new Date(y, m, 0).getDate();
+const PERIOD_DEFAULTS_RO = [
+  { id:'cafetera',    cat:'limpieza', scope:'apto', label:'Descalcificar cafetera', period:{ type:'times', months:[1,2,3,4,5,6,7,8,9,10,11,12] } },
+  { id:'aerotermia',  cat:'limpieza', scope:'apto', label:'Limpiar aerotermia',      period:{ type:'times', months:[2,5,8,11] } },
+  { id:'rodapie',     cat:'limpieza', scope:'apto', label:'Limpiar rodapié cocina',  period:{ type:'times', months:[11,4] } },
+  { id:'sofas',       cat:'limpieza', scope:'apto', label:'Cambiar funda sofá',      period:{ type:'times', months:[11] } },
+  { id:'techo',       cat:'limpieza', scope:'apto', label:'Limpiar falso techo',     period:{ type:'times', months:[11] } },
+];
+function periodDefsRO(){
+  const delIds = new Set(lsGet('art-period-deleted-defaults', []));
+  let d = lsGet('art-period-defs', null);
+  if (!d || !d.length) return PERIOD_DEFAULTS_RO.filter(t => !delIds.has(t.id));
+  const ids = new Set(d.map(t => t.id));
+  const missing = PERIOD_DEFAULTS_RO.filter(t => !ids.has(t.id) && !delIds.has(t.id));
+  return missing.length ? d.concat(missing) : d;
+}
+function periodCurrentWindowRO(task, day){
+  const y = day.getFullYear(); const p = task.period || {};
+  if (p.type === 'times' && p.months && p.months.length){
+    let best = null;
+    for (const yy of [y, y+1]) for (const m of p.months){
+      const start = new Date(yy, m-1, 1), end = new Date(yy, m-1, lastDayOfMonth(yy, m));
+      if (end >= day && (!best || start < best.start)) best = { start, end };
+    }
+    return best;
+  }
+  if (p.type === 'daterange' && p.d1 && p.m1 && p.d2 && p.m2){
+    let best = null;
+    for (const yy of [y-1, y, y+1]){
+      const start = new Date(yy, p.m1-1, p.d1);
+      const wraps = (p.m2 < p.m1) || (p.m2 === p.m1 && p.d2 < p.d1);
+      const end = new Date(yy + (wraps?1:0), p.m2-1, p.d2);
+      if (end >= day && (!best || start < best.start)) best = { start, end };
+    }
+    return best;
+  }
+  return null;
+}
+function fondoSelRO(){ return lsGet('art-fondosel-' + curISO, {}); }
+function isFondoSelectedRO(taskId, hab){ const s = fondoSelRO(); return !!(s[hab] && s[hab].includes(taskId)); }
+function pendingCheckoutFondosRO(day){
+  const out = [];
+  for (const task of periodDefsRO()){
+    if (task.cat !== 'limpieza' || task.scope !== 'apto') continue;
+    if (task.period && task.period.type === 'rolling'){ out.push(task); continue; }
+    const win = periodCurrentWindowRO(task, day);
+    if (win && day >= win.start && day <= win.end) out.push(task);
+  }
+  return out;
+}
+const sugChips = (hab) => {
+  const day = fromISO(curISO);
+  const relevant = pendingCheckoutFondosRO(day).filter(task => isFondoSelectedRO(task.id, hab));
+  if (!relevant.length) return '<span style="font-size:12px;color:var(--soft)">Sin limpiezas de fondo asignadas a este apto este mes.</span>';
+  return relevant.map(task => `<button class="exSug" data-hab="${esc(hab)}" data-txt="${esc(task.label)}" type="button">+ ${esc(task.label)}</button>`).join('');
+};
 let repExtraTareas = {};   /* hab -> [{id,texto,hecho}] */
 async function repLoadExtraTareas(){
   repExtraTareas = {};
@@ -546,7 +605,6 @@ async function renderReparto(){
   const diariaChips = repDiarias.map(d => `<span class="chip">${esc(d.texto)}<span class="x" data-diaria="${d.id}">×</span></span>`).join('') || '<span style="color:var(--soft);font-size:14px">Ninguna todavía</span>';
   const order = ['piso','toalla','cliente','fondo','pextra'];
   const gname = { piso:'Apartamentos', toalla:'Cambio de toallas', cliente:'Limpieza de cliente', fondo:'Limpiezas de fondo', pextra:'Tareas extra' };
-  const sugChips = (hab) => EXTRA_SUGERENCIAS.map(s => `<button class="exSug" data-hab="${esc(hab)}" data-txt="${esc(s)}" type="button">+ ${esc(s)}</button>`).join('');
   const diariaAptoChecklist = (hab) => {
     const porApto = repDiarias.filter(d => d.por_apto);
     if (!porApto.length) return '';
