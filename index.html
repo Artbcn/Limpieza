@@ -532,8 +532,11 @@ function periodCurrentWindowRO(task, day){
   const y = day.getFullYear(); const p = task.period || {};
   if (p.type === 'times' && p.months && p.months.length){
     let best = null;
+    const diaIni = p.diaIni || 1;
     for (const yy of [y, y+1]) for (const m of p.months){
-      const start = new Date(yy, m-1, 1), end = new Date(yy, m-1, lastDayOfMonth(yy, m));
+      const ldm = lastDayOfMonth(yy, m);
+      const diaFin = Math.min(p.diaFin || 31, ldm);
+      const start = new Date(yy, m-1, Math.min(diaIni, ldm)), end = new Date(yy, m-1, diaFin);
       if (end >= day && (!best || start < best.start)) best = { start, end };
     }
     return best;
