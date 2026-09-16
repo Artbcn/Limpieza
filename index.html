@@ -561,7 +561,7 @@ async function renderReparto(){
         ${t.coment ? `<div class="rcom">⚠ ${esc(t.coment)}</div>` : ''}
         <div class="rep-row">
           <select data-tk="${esc(repKey(t))}">${optsFor(a)}</select>
-          <button class="supBtn ${isSup ? 'on' : ''}" data-k="${t.kind}" data-b="${esc(t.base)}">${isSup ? '✓ Supervisado' : 'Supervisar'}</button>
+          <button class="supBtn ${isSup ? 'on' : ''}" data-k="${t.kind}" data-b="${esc(t.base)}">${isSup ? '✓ Supervisado' : 'Supervisado'}</button>
         </div>
         ${t.kind === 'piso' ? extraChecklist(t.hab) : ''}
         </div>`;
@@ -578,7 +578,7 @@ async function renderReparto(){
         <div class="rtop"><span class="hab">${esc(t.hab)}</span>${repTag(t)}${done ? '<span class="pill hecho">✓ hecho</span>' : '<span class="pill pend">pendiente</span>'}</div>
         <div class="rep-row">
           <select data-tk="${esc(repKey(t))}">${optsFor(a)}</select>
-          <button class="supBtn ${isSup ? 'on' : ''}" data-k="${t.kind}" data-b="${esc(t.base)}">${isSup ? '✓ Supervisado' : 'Supervisar'}</button>
+          <button class="supBtn ${isSup ? 'on' : ''}" data-k="${t.kind}" data-b="${esc(t.base)}">${isSup ? '✓ Supervisado' : 'Supervisado'}</button>
         </div></div>`;
     });
   }
@@ -606,7 +606,7 @@ async function renderReparto(){
           <div class="rtop"><span class="hab">${esc(e.hab || 'sin apto')}</span><span class="rtag otro">${esc(e.empleada)}</span></div>
           ${e.nota ? `<div class="rsub">${esc(e.nota)}</div>` : ''}
           ${fotos ? `<div style="display:flex;flex-wrap:wrap">${fotos}</div>` : ''}
-          <div class="rep-row"><button class="supBtn2${e.sup ? ' on' : ''}" data-id="${esc(e.id)}">${e.sup ? '✓ Supervisado' : 'Supervisar'}</button></div>
+          <div class="rep-row"><button class="supBtn2${e.sup ? ' on' : ''}" data-id="${esc(e.id)}">${e.sup ? '✓ Supervisado' : 'Supervisado'}</button></div>
         </div>`;
       }).join('');
     }
