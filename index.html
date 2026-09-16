@@ -83,6 +83,8 @@
   .pill.pend{ background:#f0ece2; color:#8a8270 } .pill.hecho{ background:#dff3e6; color:var(--arr) }
   .supBtn{ border:1px solid var(--line); background:#fff; border-radius:10px; padding:9px 13px; font-weight:700; cursor:pointer; font-family:inherit; font-size:13px; color:var(--ink); white-space:nowrap }
   .supBtn.on{ background:var(--ink); color:#fff; border-color:var(--ink) }
+  .supBtn2{ border:1px solid var(--line); background:#fff; border-radius:10px; padding:9px 13px; font-weight:700; cursor:pointer; font-family:inherit; font-size:13px; color:var(--ink); white-space:nowrap }
+  .supBtn2.on{ background:#128a4a; color:#fff; border-color:#128a4a }
   .rtag{ font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; padding:3px 8px; border-radius:99px }
   .rtag.lleg{ background:#e2f2e8; color:var(--arr) } .rtag.sal{ background:#f6e5e3; color:var(--dep) }
   .rtag.rep{ background:#e5eefb; color:#2563eb } .rtag.toa{ background:#dbf1ec; color:#1f7d72 }
@@ -480,6 +482,12 @@ async function repSetSup(kind, base, sup){
 }
 async function repAddEmp(nombre){ if (!sb) return; try{ await sb.from('dist_empleadas').insert({ nombre, orden: Date.now() }); }catch(e){} }
 async function repDelEmp(id){ if (!sb) return; try{ await sb.from('dist_empleadas').update({ activa: false }).eq('id', id); }catch(e){} }
+/* supervisar (o deshacer) un reporte de "algo extra" que mandó una empleada desde su app, con fotos */
+async function repSetSupExtraById(id, sup){
+  const row = repExtraLogs.find(e => e.id === id); if (row) row.sup = sup;
+  if (!sb) return;
+  try{ await sb.from('limp_cierre').update({ sup, src: SB_TAB, updated_at: new Date().toISOString() }).eq('id', id); }catch(e){}
+}
 
 /* "algo que hiciste de más": lo que la empleada ya registró como hecho en la pestaña Marcar.
    Acá solo se muestra, para que la encargada pueda anotar quién lo hizo. */
@@ -577,15 +585,31 @@ async function renderReparto(){
   if (!tasks.length && !diariaTasks.length) listHtml = '<div class="none">No hay parte para este día.</div>';
   let extraLogHtml = '';
   if (repExtraLogs.length){
-    extraLogHtml += `<div class="rgrp">Cosas extra que ya hicieron (${repExtraLogs.length})</div>`;
-    extraLogHtml += repExtraLogs.map(e => {
-      const tk = 'extralog|' + e.id, a = repAsig[tk] || '';
-      return `<div class="rep-item hecho">
-        <div class="rtop"><span class="hab">${esc(e.hab)}</span><span class="rtag otro">extra · ya hecho</span></div>
-        ${e.nota ? `<div class="rsub">${esc(e.nota)}</div>` : ''}
-        <div class="rep-row"><span style="font-size:12.5px;color:var(--muted)">¿quién lo hizo?</span><select data-tk="${esc(tk)}">${optsFor(a)}</select></div>
-      </div>`;
-    }).join('');
+    const deEmpleada = repExtraLogs.filter(e => e.empleada);
+    const deSupervisora = repExtraLogs.filter(e => !e.empleada);
+    if (deSupervisora.length){
+      extraLogHtml += `<div class="rgrp">Cosas extra que ya hicieron (${deSupervisora.length})</div>`;
+      extraLogHtml += deSupervisora.map(e => {
+        const tk = 'extralog|' + e.id, a = repAsig[tk] || '';
+        return `<div class="rep-item hecho">
+          <div class="rtop"><span class="hab">${esc(e.hab)}</span><span class="rtag otro">extra · ya hecho</span></div>
+          ${e.nota ? `<div class="rsub">${esc(e.nota)}</div>` : ''}
+          <div class="rep-row"><span style="font-size:12.5px;color:var(--muted)">¿quién lo hizo?</span><select data-tk="${esc(tk)}">${optsFor(a)}</select></div>
+        </div>`;
+      }).join('');
+    }
+    if (deEmpleada.length){
+      extraLogHtml += `<div class="rgrp">Reportado por las chicas (${deEmpleada.length})</div>`;
+      extraLogHtml += deEmpleada.map(e => {
+        const fotos = (e.fotos || []).map(u => `<img src="${esc(u)}" style="width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--line);margin:4px 6px 0 0;cursor:pointer" onclick="window.open('${esc(u)}','_blank')">`).join('');
+        return `<div class="rep-item${e.sup ? ' hecho' : ''}">
+          <div class="rtop"><span class="hab">${esc(e.hab || 'sin apto')}</span><span class="rtag otro">${esc(e.empleada)}</span></div>
+          ${e.nota ? `<div class="rsub">${esc(e.nota)}</div>` : ''}
+          ${fotos ? `<div style="display:flex;flex-wrap:wrap">${fotos}</div>` : ''}
+          <div class="rep-row"><button class="supBtn2${e.sup ? ' on' : ''}" data-id="${esc(e.id)}">${e.sup ? '✓ Supervisado' : 'Supervisar'}</button></div>
+        </div>`;
+      }).join('');
+    }
   }
   box.innerHTML =
     `<div class="rsummary">${hechas} hechas · ${sup} supervisadas · de ${tasks.length + diariaTasks.length}</div>`
@@ -596,6 +620,7 @@ async function renderReparto(){
     + diariaHtml + listHtml + extraLogHtml;
   box.querySelectorAll('select[data-tk]').forEach(s => s.addEventListener('change', () => repSetAsig(s.dataset.tk, s.value)));
   box.querySelectorAll('.supBtn').forEach(b => b.addEventListener('click', async () => { await repSetSup(b.dataset.k, b.dataset.b, !b.classList.contains('on')); renderReparto(); }));
+  box.querySelectorAll('.supBtn2').forEach(b => b.addEventListener('click', async () => { await repSetSupExtraById(b.dataset.id, !b.classList.contains('on')); renderReparto(); }));
   box.querySelectorAll('#repEmpChips .x').forEach(x => x.addEventListener('click', async () => { if (confirm('¿Quitar esta empleada de la lista?')){ await repDelEmp(x.dataset.emp); renderReparto(); } }));
   const add = $('repEmpAdd'); if (add) add.addEventListener('click', async () => { const i = $('repEmpName'), n = (i.value || '').trim(); if (n){ await repAddEmp(n); renderReparto(); } });
   box.querySelectorAll('#repDiariaChips .x').forEach(x => x.addEventListener('click', async () => { if (confirm('¿Quitar esta tarea diaria?')){ await repDelDiaria(x.dataset.diaria); renderReparto(); } }));
