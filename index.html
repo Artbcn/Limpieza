@@ -471,7 +471,7 @@ async function repSetAsig(taskkey, asignada){ if (!sb) return; try{ await sb.fro
 /* tareas diarias fijas: se repiten todos los días solas, sin depender del parte del día */
 let repDiarias = [];
 async function repLoadDiarias(){ repDiarias = []; if (!sb) return; try{ const r = await sb.from('dist_tareas_diarias').select('*').eq('activa', true).order('orden'); repDiarias = r.data || []; }catch(e){} }
-async function repAddDiaria(texto){ if (!sb || !texto.trim()) return; try{ await sb.from('dist_tareas_diarias').insert({ texto: texto.trim(), orden: Date.now() }); }catch(e){} }
+async function repAddDiaria(texto, porApto){ if (!sb || !texto.trim()) return; try{ await sb.from('dist_tareas_diarias').insert({ texto: texto.trim(), orden: Date.now(), por_apto: !!porApto }); }catch(e){} }
 async function repDelDiaria(id){ if (!sb) return; try{ await sb.from('dist_tareas_diarias').update({ activa:false }).eq('id', id); }catch(e){} }
 async function repSetSup(kind, base, sup){
   const key = kind + '|' + base;
@@ -487,6 +487,13 @@ async function repSetSupExtraById(id, sup){
   const row = repExtraLogs.find(e => e.id === id); if (row) row.sup = sup;
   if (!sb) return;
   try{ await sb.from('limp_cierre').update({ sup, src: SB_TAB, updated_at: new Date().toISOString() }).eq('id', id); }catch(e){}
+}
+async function repSetSupDiariaApto(key, sup){
+  if (!cierreMap[key]) return;
+  cierreMap[key].sup = sup;
+  if (!sb) return;
+  const hab = key.slice(key.indexOf('|') + 1);
+  try{ await sb.from('limp_cierre').upsert({ id: curISO + '|' + key, fecha: curISO, kind:'diaria_apto', hab, sup, src: SB_TAB, updated_at: new Date().toISOString() }); }catch(e){}
 }
 
 /* "algo que hiciste de más": lo que la empleada ya registró como hecho en la pestaña Marcar.
@@ -529,7 +536,7 @@ async function renderReparto(){
   }
   await repLoadEmp(); await repLoadAsig(); await repLoadExtraLogs(); await repLoadExtraTareas(); await repLoadDiarias();
   const tasks = repTasks();
-  const diariaTasks = repDiarias.map(d => ({ kind:'diaria', base:String(d.id), hab:d.texto }));
+  const diariaTasks = repDiarias.filter(d => !d.por_apto).map(d => ({ kind:'diaria', base:String(d.id), hab:d.texto }));
   const optsFor = a => '<option value="">Sin asignar</option>' + repEmp.map(e => `<option value="${esc(e.nombre)}"${a === e.nombre ? ' selected' : ''}>${esc(e.nombre)}</option>`).join('');
   const optsForDaily = a => '<option value="">Sin asignar</option>'
     + `<option value="__TODAS__"${a === '__TODAS__' ? ' selected' : ''}>Todas</option>`
@@ -539,6 +546,20 @@ async function renderReparto(){
   const order = ['piso','toalla','cliente','fondo','pextra'];
   const gname = { piso:'Apartamentos', toalla:'Cambio de toallas', cliente:'Limpieza de cliente', fondo:'Limpiezas de fondo', pextra:'Tareas extra' };
   const sugChips = (hab) => EXTRA_SUGERENCIAS.map(s => `<button class="exSug" data-hab="${esc(hab)}" data-txt="${esc(s)}" type="button">+ ${esc(s)}</button>`).join('');
+  const diariaAptoChecklist = (hab) => {
+    const porApto = repDiarias.filter(d => d.por_apto);
+    if (!porApto.length) return '';
+    const rows = porApto.map(d => {
+      const key = 'diaria_apto|' + hab + '§' + d.id;
+      const c = cierreMap[key] || {}, done = !!c.declarado, isSup = !!c.sup;
+      return `<div class="rep-row" style="margin-top:6px;align-items:center">
+        <span style="font-size:12.5px;color:var(--muted)">${esc(d.texto)}:</span>
+        <span style="flex:1;font-weight:700;font-size:13px">${c.nota ? esc(c.nota) : '<i style="color:var(--soft);font-weight:400">sin anotar todavía</i>'}</span>
+        ${done ? `<button class="supBtn2${isSup ? ' on' : ''}" data-daptokey="${esc(key)}">${isSup ? '✓ Supervisado' : 'Supervisado'}</button>` : ''}
+      </div>`;
+    }).join('');
+    return `<div class="rep-extra"><div class="rep-extra-lbl">Anotaciones diarias de este apto</div>${rows}</div>`;
+  };
   const extraChecklist = (hab) => {
     const items = repExtraTareas[hab] || [];
     const rows = items.map(x => `<span class="exItem ${x.hecho ? 'done' : ''}">${x.hecho ? '✓ ' : ''}${esc(x.texto)}<span class="exx" data-id="${esc(x.id)}">×</span></span>`).join('');
@@ -566,7 +587,7 @@ async function renderReparto(){
           <select data-tk="${esc(repKey(t))}">${optsFor(a)}</select>
           <button class="supBtn ${isSup ? 'on' : ''}" data-k="${t.kind}" data-b="${esc(t.base)}">${isSup ? '✓ Supervisado' : 'Supervisado'}</button>
         </div>
-        ${t.kind === 'piso' ? extraChecklist(t.hab) : ''}
+        ${t.kind === 'piso' ? diariaAptoChecklist(t.hab) + extraChecklist(t.hab) : ''}
         </div>`;
     });
   });
@@ -619,15 +640,17 @@ async function renderReparto(){
     + `<div class="rep-emp"><div style="font-weight:700">Empleadas</div><div class="chips" id="repEmpChips">${chips}</div>`
     + `<div class="addemp"><input id="repEmpName" placeholder="Nombre de la empleada"><button id="repEmpAdd">Agregar</button></div></div>`
     + `<div class="rep-emp"><div style="font-weight:700">Tareas diarias (se repiten todos los días)</div><div class="chips" id="repDiariaChips">${diariaChips}</div>`
-    + `<div class="addemp"><input id="repDiariaTxt" placeholder="ej: regar plantas, sacar basura..."><button id="repDiariaAdd">Agregar</button></div></div>`
+    + `<div class="addemp"><input id="repDiariaTxt" placeholder="ej: regar plantas, sacar basura..."><button id="repDiariaAdd">Agregar</button></div>`
+    + `<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--soft);margin-top:6px"><input type="checkbox" id="repDiariaPorApto"> Pedirles que anoten algo en CADA apartamento (ej: color del piso del baño), en vez de una tarea única</label></div>`
     + diariaHtml + listHtml + extraLogHtml;
   box.querySelectorAll('select[data-tk]').forEach(s => s.addEventListener('change', () => repSetAsig(s.dataset.tk, s.value)));
   box.querySelectorAll('.supBtn').forEach(b => b.addEventListener('click', async () => { await repSetSup(b.dataset.k, b.dataset.b, !b.classList.contains('on')); renderReparto(); }));
-  box.querySelectorAll('.supBtn2').forEach(b => b.addEventListener('click', async () => { await repSetSupExtraById(b.dataset.id, !b.classList.contains('on')); renderReparto(); }));
+  box.querySelectorAll('.supBtn2[data-id]').forEach(b => b.addEventListener('click', async () => { await repSetSupExtraById(b.dataset.id, !b.classList.contains('on')); renderReparto(); }));
+  box.querySelectorAll('.supBtn2[data-daptokey]').forEach(b => b.addEventListener('click', async () => { await repSetSupDiariaApto(b.dataset.daptokey, !b.classList.contains('on')); renderReparto(); }));
   box.querySelectorAll('#repEmpChips .x').forEach(x => x.addEventListener('click', async () => { if (confirm('¿Quitar esta empleada de la lista?')){ await repDelEmp(x.dataset.emp); renderReparto(); } }));
   const add = $('repEmpAdd'); if (add) add.addEventListener('click', async () => { const i = $('repEmpName'), n = (i.value || '').trim(); if (n){ await repAddEmp(n); renderReparto(); } });
   box.querySelectorAll('#repDiariaChips .x').forEach(x => x.addEventListener('click', async () => { if (confirm('¿Quitar esta tarea diaria?')){ await repDelDiaria(x.dataset.diaria); renderReparto(); } }));
-  const addD = $('repDiariaAdd'); if (addD) addD.addEventListener('click', async () => { const i = $('repDiariaTxt'), n = (i.value || '').trim(); if (n){ await repAddDiaria(n); renderReparto(); } });
+  const addD = $('repDiariaAdd'); if (addD) addD.addEventListener('click', async () => { const i = $('repDiariaTxt'), n = (i.value || '').trim(), pa = $('repDiariaPorApto'); if (n){ await repAddDiaria(n, pa && pa.checked); renderReparto(); } });
   box.querySelectorAll('.exSug').forEach(b => b.addEventListener('click', async () => { await repAddExtraTarea(b.dataset.hab, b.dataset.txt); renderReparto(); }));
   box.querySelectorAll('.exAddBtn').forEach(b => b.addEventListener('click', async () => {
     const inp = box.querySelector(`.exInput[data-hab="${CSS.escape(b.dataset.hab)}"]`); if (!inp || !inp.value.trim()) return;
