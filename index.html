@@ -511,6 +511,14 @@ async function repDelExtraTarea(id){ if (!sb) return; try{ await sb.from('dist_e
 
 async function renderReparto(){
   const box = $('repartoWrap'); if (!box) return;
+  /* si está escribiendo en un campo de texto de esta pestaña, no la redibujamos ahora
+     (se pisaría lo que está tipeando); reintenta solo, apenas termine de escribir. */
+  const activo = document.activeElement;
+  if (box.contains(activo) && (activo.tagName === 'INPUT' || activo.tagName === 'TEXTAREA')){
+    clearTimeout(renderReparto._retry);
+    renderReparto._retry = setTimeout(renderReparto, 1500);
+    return;
+  }
   await repLoadEmp(); await repLoadAsig(); await repLoadExtraLogs(); await repLoadExtraTareas(); await repLoadDiarias();
   const tasks = repTasks();
   const diariaTasks = repDiarias.map(d => ({ kind:'diaria', base:String(d.id), hab:d.texto }));
