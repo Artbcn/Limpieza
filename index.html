@@ -58,6 +58,40 @@
   .pSection{ font-weight:800; font-size:13.5px; margin:22px 0 10px; padding-top:14px; border-top:1px solid var(--line) }
   .pSection:first-of-type{ border-top:none }
   .pGenerated{ font-size:11.5px; color:var(--soft); margin-top:16px; text-align:center }
+  .piv{ background:#FAF8F3; border-radius:14px; overflow:hidden; border:1px solid var(--line); margin:-14px -14px 0 }
+  .piv-head{ background:#17313B; color:#fff; padding:20px 22px 16px }
+  .piv-head h2{ margin:0; font-size:20px; font-weight:800; letter-spacing:-.01em }
+  .piv-head .sub{ color:#93A7B0; font-size:12.5px; margin-top:4px }
+  .piv-head .date{ color:#0FA3A3; font-weight:700; font-size:13px; margin-top:8px }
+  .piv-body{ padding:18px 22px 8px }
+  .piv-h3{ font-size:14px; font-weight:800; color:#17313B; margin:0 0 8px }
+  .pivTbl{ width:100%; border-collapse:collapse; font-size:12.5px }
+  .pivTbl th{ text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:#A6B0B6; font-weight:700; padding:6px 8px; border-bottom:1px solid var(--line) }
+  .pivTbl td{ padding:9px 8px; border-bottom:1px solid var(--line); color:#17313B; vertical-align:top }
+  .pivPrio{ display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; font-weight:800; font-size:12px }
+  .pivPrio.on{ background:#2E9E5B; color:#fff } .pivPrio.off{ background:#fff; border:1.5px solid #E4DFD4; color:#8A93A6 }
+  .pivTag{ display:inline-block; font-size:10.5px; font-weight:800; text-transform:uppercase; padding:4px 10px; border-radius:20px }
+  .pivTag.lleg{ background:#1E8C4E; color:#fff } .pivTag.sal{ background:#eef0f2; color:#5f6b73 }
+  .pivEstado{ display:inline-block; font-size:10.5px; font-weight:800; text-transform:uppercase; padding:4px 10px; border-radius:20px }
+  .pivEstado.sucia{ background:#fbe3e3; color:#a03434 } .pivEstado.repaso{ background:#e8eefc; color:#3b5bbf }
+  .piv-2col{ display:flex; gap:24px; flex-wrap:wrap; margin-top:22px }
+  .piv-2col > div{ flex:1; min-width:240px }
+  .piv-tw{ display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid #efece3; font-size:13px; color:#17313B }
+  .piv-tw .hora{ background:#e3f5f5; color:#0e7a7a; font-weight:700; font-size:11.5px; padding:3px 8px; border-radius:6px }
+  .piv-tw .estado{ margin-left:auto; font-size:11px; font-weight:800; text-transform:uppercase; color:#8A93A6 }
+  .piv-none{ color:#B7AF9F; font-size:13px }
+  .piv-fc{ display:grid; grid-template-columns:repeat(8,1fr); gap:8px; margin-top:22px }
+  .piv-fc .fd{ background:#fff; border:1px solid var(--line); border-radius:10px; padding:8px 4px; text-align:center }
+  .piv-fc .fd.today{ border-color:#17313B; border-width:1.5px }
+  .piv-fc .fdate{ font-size:11px; font-weight:700; color:#17313B; text-transform:uppercase }
+  .piv-fc .fm{ font-size:10px; font-weight:700; color:#A6B0B6; margin-top:6px }
+  .piv-fc .fv{ font-size:15px; font-weight:800; color:#D8D2C6 }
+  .piv-fc .fv.on{ color:#17313B }
+  .piv-legend{ display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:#5C707A; margin-top:10px }
+  .piv-legend span{ display:inline-flex; align-items:center; gap:5px }
+  .piv-legend i{ width:9px; height:9px; border-radius:50%; display:inline-block }
+  .piv-footer{ font-size:11.5px; color:#8A93A6; padding:14px 22px 20px }
+  @media (max-width:700px){ .piv-fc{ grid-template-columns:repeat(4,1fr) } .pivTbl{ display:block; overflow-x:auto; white-space:nowrap } }
   .pHeadline{ font-weight:800; font-size:15px; margin-bottom:12px; display:flex; align-items:baseline; gap:8px }
   .pHeadline .n{ color:var(--soft); font-weight:600; font-size:13px }
   .doneBtn{ border:none; border-radius:12px; padding:12px 16px; font-weight:800; font-size:15px; cursor:pointer; white-space:nowrap; min-width:104px }
@@ -757,62 +791,90 @@ async function renderReparto(){
 }
 
 /* ==================== Vista "Parte" en vivo (igual al parte que se comparte) ==================== */
-function renderParteView(){
+async function loadForecastDays(){
+  const out = [];
+  for (let k = 0; k <= 7; k++){
+    const iso = toISO(addDays(fromISO(curISO), k));
+    let d = null;
+    try{ const r = await sb.from('limp_parte').select('data').eq('fecha', iso).maybeSingle(); d = (r.data && r.data.data) || null; }catch(e){}
+    const pisos = (d && d.pisos) || [], toa = (d && d.toallas) || [], cli = (d && d.clientes) || [];
+    out.push({
+      iso, lleg: pisos.filter(p => p.tipo === 'llegada').length, sal: pisos.filter(p => p.tipo !== 'llegada').length,
+      toa: toa.length, cli: cli.length
+    });
+  }
+  return out;
+}
+async function renderParteView(){
   const box = $('parteWrap'); if (!box) return;
   const pisos = (parte && parte.pisos) || [];
   const toallas = (parte && parte.toallas) || [];
   const clientes = (parte && parte.clientes) || [];
   const nLleg = pisos.filter(p => p.tipo === 'llegada').length;
-  const sorted = pisos.slice().sort((a,b) => (String(b.priori).trim()==='1'?1:0) - (String(a.priori).trim()==='1'?1:0));
-  const cards = sorted.map(p => {
+  const rows = pisos.map(p => {
     const c = cierreMap['piso|' + p.hab] || {};
-    const done = !!c.hecho;
-    const estadoCls = p.obs === 'repaso' ? 'repaso' : 'sucia';
     const prio1 = String(p.priori).trim() === '1';
-    const metas = [];
-    if (p.pax && p.pax !== '·0·0·0' && !/^0·0·0·0$/.test(p.pax)) metas.push(`<b>${esc(p.pax)}</b> pax`);
-    if (p.cama) metas.push(esc(p.cama));
-    if (p.horaSalida) metas.push('sale: <b>' + esc(p.horaSalida) + '</b>');
-    if (p.horaLleg) metas.push('entra: <b>' + esc(p.horaLleg) + '</b>');
-    return `<div class="pCard${done?' phecho':''}">
-      <div class="pTop">
-        ${prio1 ? '<span class="pPrio1">1</span>' : ''}
-        <span class="pHab">${esc(p.hab)}</span>
-        <span class="pTag ${p.tipo === 'llegada' ? 'lleg' : 'sal'}">${esc(p.tipoLbl || p.tipo)}</span>
-        <span class="pTag ${estadoCls}">${esc(p.obs || '')}</span>
-        ${done ? '<span class="pDoneMark">✓ hecho</span>' : ''}
-      </div>
-      ${p.huesped ? `<div class="pHuesped">${esc(p.huesped)}</div>` : ''}
-      ${metas.length ? `<div class="pMeta">${metas.join(' · ')}</div>` : ''}
-      ${p.coment ? `<div class="pComent">⚠ ${esc(p.coment)}</div>` : ''}
-      ${c.nota ? `<div class="pNota">${esc(c.nota)}</div>` : ''}
-    </div>`;
-  }).join('') || '<div style="color:var(--soft);text-align:center;padding:20px">Sin apartamentos para este día.</div>';
-  const toallasHtml = toallas.length ? toallas.map(t => {
+    const estadoCls = p.obs === 'repaso' ? 'repaso' : 'sucia';
+    return `<tr>
+      <td><span class="pivPrio ${prio1 ? 'on' : 'off'}">${prio1 ? '1' : '0'}</span></td>
+      <td style="font-weight:800">${esc(p.hab)}</td>
+      <td><span class="pivTag ${p.tipo === 'llegada' ? 'lleg' : 'sal'}">${esc(p.tipoLbl || p.tipo)}</span></td>
+      <td><span class="pivEstado ${estadoCls}">${esc(p.obs || '')}</span></td>
+      <td style="font-weight:600">${esc(p.huesped || '')}</td>
+      <td>${esc(p.horaSalida || '')}</td>
+      <td>${esc(p.horaLleg || '')}</td>
+      <td>${esc(p.pax || '')}</td>
+      <td style="color:#B5730F">${esc(p.coment || '')}${c.nota ? (p.coment ? ' · ' : '') + esc(c.nota) : ''}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="9" style="text-align:center;color:#B7AF9F;padding:16px">Sin apartamentos para este día.</td></tr>`;
+  const twHtml = toallas.length ? toallas.map(t => {
     const c = cierreMap['toalla|' + t.hab] || {};
-    return `<div class="pRow2">
-      <span class="hab">${esc(t.hab)}</span>
-      <span class="pTag lleg" style="background:#d8f1ec;color:#1f7d72">${esc(t.hora)} h</span>
-      <span style="flex:1">${esc(t.huesped || '')}</span>
-      <span style="font-weight:700;font-size:12.5px;color:${c.hecho ? '#1E8C4E' : 'var(--soft)'}">${c.hecho ? '✓ hecho' : 'pendiente'}</span>
-    </div>`;
-  }).join('') : '<div style="color:var(--soft);font-size:13.5px">Sin cambios de toalla para este día.</div>';
-  const clientesHtml = clientes.length ? clientes.map(c => {
+    return `<div class="piv-tw"><b>${esc(t.hab)}</b><span class="hora">${esc(t.hora)} h</span><span>${esc(t.huesped || '')}</span><span class="estado">${c.hecho ? '✓ hecho' : 'pendiente'}</span></div>`;
+  }).join('') : '<div class="piv-none">Sin cambios de toalla</div>';
+  const cliHtml = clientes.length ? clientes.map(c => {
     const cc = cierreMap['cliente|' + c.hab] || {};
-    return `<div class="pRow2">
-      <span class="hab">${esc(c.hab)}</span>
-      <span style="flex:1">${esc(c.huesped || '')}</span>
-      <span style="font-weight:700;font-size:12.5px;color:${cc.hecho ? '#1E8C4E' : 'var(--soft)'}">${cc.hecho ? '✓ hecho' : 'pendiente'}</span>
-    </div>`;
-  }).join('') : '<div style="color:var(--soft);font-size:13.5px">Sin limpiezas de cliente para este día.</div>';
-  box.innerHTML = `
-    <div class="pHeadline">Apartamentos a limpiar <span class="n">${pisos.length} · ${nLleg} con llegada</span></div>
-    ${cards}
-    <div class="pSection">Cambio de toallas (${toallas.length})</div>
-    ${toallasHtml}
-    <div class="pSection">Limpieza de cliente (${clientes.length})</div>
-    ${clientesHtml}
-    <div class="pGenerated">Se actualiza solo, en vivo.</div>`;
+    return `<div class="piv-tw"><b>${esc(c.hab)}</b><span>${esc(c.huesped || '')}</span><span class="estado">${cc.hecho ? '✓ hecho' : 'pendiente'}</span></div>`;
+  }).join('') : '<div class="piv-none">Sin limpiezas de cliente</div>';
+  box.innerHTML = `<div class="piv">
+    <div class="piv-head">
+      <h2>PARTE DE LIMPIEZA · ART APARTMENTS</h2>
+      <div class="sub">Tareas · toallas · limpiezas del ${esc(curISO.split('-').reverse().join('/'))}</div>
+      <div class="date">${esc(humanDate(curISO))}</div>
+    </div>
+    <div class="piv-body">
+      <div class="piv-h3">Apartamentos a limpiar (${pisos.length}) · ${nLleg} con llegada</div>
+      <div style="overflow-x:auto"><table class="pivTbl"><thead><tr>
+        <th>Prio</th><th>Hab</th><th>Tipo</th><th>Estado</th><th>Huésped</th><th>Sale</th><th>Entra</th><th>Pax</th><th>Comentarios</th>
+      </tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="piv-2col">
+        <div><div class="piv-h3" style="color:#0FA3A3">Cambio de toallas (${toallas.length})</div>${twHtml}</div>
+        <div><div class="piv-h3" style="color:#E8A13D">Limpieza de cliente (${clientes.length})</div>${cliHtml}</div>
+      </div>
+      <div class="piv-h3" style="margin-top:22px">Previsión próximos 7 días</div>
+      <div class="piv-fc" id="pivFc">${Array.from({length:8}).map(()=>'<div class="fd"><div class="fdate">…</div></div>').join('')}</div>
+      <div class="piv-legend">
+        <span><i style="background:#0FA3A3"></i>toallas</span>
+        <span><i style="background:#E8A13D"></i>clientes</span>
+        <span><i style="background:#1E8C4E"></i>llegadas</span>
+        <span><i style="background:#C0392B"></i>salidas</span>
+      </div>
+    </div>
+    <div class="piv-footer">Se actualiza solo, en vivo · ART Limpieza</div>
+  </div>`;
+  loadForecastDays().then(days => {
+    const fc = $('pivFc'); if (!fc) return;
+    fc.innerHTML = days.map(d => {
+      const dd = fromISO(d.iso), isToday = d.iso === curISO;
+      const dow = DIAS[dd.getDay()].slice(0,3);
+      return `<div class="fd${isToday ? ' today' : ''}">
+        <div class="fdate">${dow} ${pad(dd.getDate())}/${pad(dd.getMonth()+1)}</div>
+        <div class="fm">T</div><div class="fv${d.toa?' on':''}">${d.toa}</div>
+        <div class="fm">C</div><div class="fv${d.cli?' on':''}">${d.cli}</div>
+        <div class="fm">LLEG</div><div class="fv${d.lleg?' on':''}">${d.lleg}</div>
+        <div class="fm">SAL</div><div class="fv${d.sal?' on':''}">${d.sal}</div>
+      </div>`;
+    }).join('');
+  });
 }
 
 function setTab(t){
