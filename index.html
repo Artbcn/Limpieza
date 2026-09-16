@@ -202,14 +202,14 @@ async function loadParte(){
 async function setDone(kind, hab, hecho){
   const key = kind + '|' + hab;
   const prev = cierreMap[key] || {};
-  const row = { id: curISO + '|' + kind + '|' + hab, fecha: curISO, kind, hab, hecho, nota: prev.nota || '', src: SB_TAB, updated_at: new Date().toISOString() };
+  const row = { id: curISO + '|' + kind + '|' + hab, fecha: curISO, kind, hab, hecho, declarado: prev.declarado||false, declarado_at: prev.declarado_at||null, sup: prev.sup||false, nota: prev.nota || '', src: SB_TAB, updated_at: new Date().toISOString() };
   cierreMap[key] = row;
   if (sb){ try{ await sb.from('limp_cierre').upsert(row); }catch(e){} }
 }
 async function setNota(kind, hab, nota){
   const key = kind + '|' + hab;
   const prev = cierreMap[key] || {};
-  const row = { id: curISO + '|' + kind + '|' + hab, fecha: curISO, kind, hab, hecho: !!prev.hecho, nota, src: SB_TAB, updated_at: new Date().toISOString() };
+  const row = { id: curISO + '|' + kind + '|' + hab, fecha: curISO, kind, hab, hecho: !!prev.hecho, declarado: prev.declarado||false, declarado_at: prev.declarado_at||null, sup: prev.sup||false, nota, src: SB_TAB, updated_at: new Date().toISOString() };
   cierreMap[key] = row;
   if (sb){ try{ await sb.from('limp_cierre').upsert(row); }catch(e){} }
 }
@@ -535,7 +535,7 @@ async function renderReparto(){
     const g = tasks.filter(t => t.kind === k); if (!g.length) return;
     listHtml += `<div class="rgrp">${gname[k]} (${g.length})</div>`;
     g.forEach(t => {
-      const c = cierreMap[repKey(t)] || {}, done = !!c.hecho, isSup = !!c.sup;
+      const c = cierreMap[repKey(t)] || {}, done = !!c.declarado, isSup = !!c.sup;
       if (done) hechas++; if (isSup) sup++;
       const a = repAsig[repKey(t)] || '', sb2 = repSub(t);
       listHtml += `<div class="rep-item ${done ? 'hecho' : ''}">
@@ -555,7 +555,7 @@ async function renderReparto(){
   if (diariaTasks.length){
     diariaHtml += `<div class="rgrp">Tareas diarias (${diariaTasks.length})</div>`;
     diariaTasks.forEach(t => {
-      const c = cierreMap[repKey(t)] || {}, done = !!c.hecho, isSup = !!c.sup;
+      const c = cierreMap[repKey(t)] || {}, done = !!c.declarado, isSup = !!c.sup;
       if (done) hechas++; if (isSup) sup++;
       const a = repAsig[repKey(t)] || '';
       diariaHtml += `<div class="rep-item ${done ? 'hecho' : ''}">
