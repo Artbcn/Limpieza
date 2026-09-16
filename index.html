@@ -473,6 +473,7 @@ let repDiarias = [];
 async function repLoadDiarias(){ repDiarias = []; if (!sb) return; try{ const r = await sb.from('dist_tareas_diarias').select('*').eq('activa', true).order('orden'); repDiarias = r.data || []; }catch(e){} }
 async function repAddDiaria(texto, porApto){ if (!sb || !texto.trim()) return; try{ await sb.from('dist_tareas_diarias').insert({ texto: texto.trim(), orden: Date.now(), por_apto: !!porApto }); }catch(e){} }
 async function repDelDiaria(id){ if (!sb) return; try{ await sb.from('dist_tareas_diarias').update({ activa:false }).eq('id', id); }catch(e){} }
+async function repToggleDiariaPorApto(id, val){ if (!sb) return; try{ await sb.from('dist_tareas_diarias').update({ por_apto: val }).eq('id', id); }catch(e){} }
 async function repSetSup(kind, base, sup){
   const key = kind + '|' + base;
   if (!cierreMap[key]) cierreMap[key] = { kind, hab: base };
@@ -603,7 +604,9 @@ async function renderReparto(){
         <div class="rep-row">
           <select data-tk="${esc(repKey(t))}">${optsForDaily(a)}</select>
           <button class="supBtn ${isSup ? 'on' : ''}" data-k="${t.kind}" data-b="${esc(t.base)}">${isSup ? '✓ Supervisado' : 'Supervisado'}</button>
-        </div></div>`;
+        </div>
+        <div style="margin-top:4px"><a href="#" class="toPorApto" data-id="${esc(t.base)}" style="font-size:12px;color:var(--soft)">Cambiar a "anotar en cada apartamento" en vez de tarea única</a></div>
+        </div>`;
     });
   }
   if (!tasks.length && !diariaTasks.length) listHtml = '<div class="none">No hay parte para este día.</div>';
@@ -647,6 +650,12 @@ async function renderReparto(){
   box.querySelectorAll('.supBtn').forEach(b => b.addEventListener('click', async () => { await repSetSup(b.dataset.k, b.dataset.b, !b.classList.contains('on')); renderReparto(); }));
   box.querySelectorAll('.supBtn2[data-id]').forEach(b => b.addEventListener('click', async () => { await repSetSupExtraById(b.dataset.id, !b.classList.contains('on')); renderReparto(); }));
   box.querySelectorAll('.supBtn2[data-daptokey]').forEach(b => b.addEventListener('click', async () => { await repSetSupDiariaApto(b.dataset.daptokey, !b.classList.contains('on')); renderReparto(); }));
+  box.querySelectorAll('.toPorApto').forEach(a => a.addEventListener('click', async ev => {
+    ev.preventDefault();
+    if (!confirm('¿Convertir esta tarea en "anotar en cada apartamento"? Va a dejar de aparecer como tarea única.')) return;
+    await repToggleDiariaPorApto(a.dataset.id, true);
+    renderReparto();
+  }));
   box.querySelectorAll('#repEmpChips .x').forEach(x => x.addEventListener('click', async () => { if (confirm('¿Quitar esta empleada de la lista?')){ await repDelEmp(x.dataset.emp); renderReparto(); } }));
   const add = $('repEmpAdd'); if (add) add.addEventListener('click', async () => { const i = $('repEmpName'), n = (i.value || '').trim(); if (n){ await repAddEmp(n); renderReparto(); } });
   box.querySelectorAll('#repDiariaChips .x').forEach(x => x.addEventListener('click', async () => { if (confirm('¿Quitar esta tarea diaria?')){ await repDelDiaria(x.dataset.diaria); renderReparto(); } }));
