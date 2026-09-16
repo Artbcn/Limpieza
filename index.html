@@ -894,6 +894,7 @@ $('tabParte').addEventListener('click', () => setTab('parte'));
 
 /* mantener el reparto y la vista de parte sincronizados cuando se recarga (día / realtime) */
 try{ const _lp = loadParte; loadParte = async function(){ await _lp(); if (activeTab === 'reparto') renderReparto(); if (activeTab === 'parte') renderParteView(); }; }catch(e){}
+setInterval(() => { if (activeTab === 'parte') loadParte(); }, 6000);
 setInterval(() => { if (activeTab === 'reparto') renderReparto(); }, 8000);
 /* ==================== fin Reparto + supervisión ==================== */
 
