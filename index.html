@@ -38,17 +38,28 @@
   .tag{ display:inline-block; font-size:11px; font-weight:700; padding:2px 7px; border-radius:20px; margin-left:6px; vertical-align:middle }
   .tag.lleg{ background:#e3f4ea; color:var(--arr) } .tag.sal{ background:#fbe9e7; color:var(--dep) }
   .tag.rep{ background:#e8eefc; color:#3b5bbf } .tag.extra{ background:#fdf0d9; color:#a9741a }
-  .parteTbl{ width:100%; border-collapse:collapse; font-size:13.5px; background:#fff; border-radius:12px; overflow:hidden; border:1px solid var(--line) }
-  .parteTbl th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--soft); padding:8px 10px; border-bottom:1px solid var(--line) }
-  .parteTbl td{ padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:top }
-  .parteTbl tr:last-child td{ border-bottom:none }
-  .parteTbl tr.phecho td{ background:#f3faf5 }
-  .pTag{ display:inline-block; font-size:11px; font-weight:800; text-transform:uppercase; padding:3px 9px; border-radius:20px }
+  .pCard{ background:#fff; border:1px solid var(--line); border-radius:14px; padding:13px 15px; margin-bottom:9px }
+  .pCard.phecho{ background:#f3faf5; border-color:#cfe9d8 }
+  .pTop{ display:flex; align-items:center; gap:9px; flex-wrap:wrap; margin-bottom:5px }
+  .pHab{ font-size:19px; font-weight:800; letter-spacing:-.01em }
+  .pPrio1{ display:inline-flex; align-items:center; justify-content:center; width:21px; height:21px; border-radius:50%; background:#1E8C4E; color:#fff; font-weight:800; font-size:11px }
+  .pTag{ display:inline-block; font-size:10.5px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; padding:3px 9px; border-radius:20px }
   .pTag.lleg{ background:#e3f4ea; color:#1E8C4E } .pTag.sal{ background:#eef0f2; color:#5f6b73 }
-  .pEstado{ display:inline-block; font-size:11px; font-weight:800; text-transform:uppercase; padding:3px 9px; border-radius:20px }
-  .pEstado.sucia{ background:#fbe3e3; color:#a03434 } .pEstado.repaso{ background:#e8eefc; color:#3b5bbf }
-  .pSection{ font-weight:800; font-size:13px; margin:20px 0 8px; color:var(--ink) }
-  .pGenerated{ font-size:11.5px; color:var(--soft); margin-top:14px }
+  .pTag.sucia{ background:#fbe3e3; color:#a03434 } .pTag.repaso{ background:#e8eefc; color:#3b5bbf }
+  .pDoneMark{ margin-left:auto; font-size:12px; font-weight:800; color:#1E8C4E }
+  .pHuesped{ font-size:14px; color:var(--ink); margin-bottom:3px }
+  .pMeta{ font-size:12.5px; color:var(--soft); display:flex; gap:12px; flex-wrap:wrap }
+  .pMeta b{ color:var(--ink) }
+  .pComent{ font-size:13px; color:#a9741a; margin-top:6px; background:#fdf6e8; border-radius:8px; padding:6px 10px }
+  .pNota{ font-size:13px; color:#3b5bbf; margin-top:6px; background:#eef1fb; border-radius:8px; padding:6px 10px }
+  .pRow2{ display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--line) }
+  .pRow2:last-child{ border-bottom:none }
+  .pRow2 .hab{ font-weight:800; min-width:40px }
+  .pSection{ font-weight:800; font-size:13.5px; margin:22px 0 10px; padding-top:14px; border-top:1px solid var(--line) }
+  .pSection:first-of-type{ border-top:none }
+  .pGenerated{ font-size:11.5px; color:var(--soft); margin-top:16px; text-align:center }
+  .pHeadline{ font-weight:800; font-size:15px; margin-bottom:12px; display:flex; align-items:baseline; gap:8px }
+  .pHeadline .n{ color:var(--soft); font-weight:600; font-size:13px }
   .doneBtn{ border:none; border-radius:12px; padding:12px 16px; font-weight:800; font-size:15px; cursor:pointer; white-space:nowrap; min-width:104px }
   .doneBtn.off{ background:#eee7d7; color:#8a7f66 }
   .doneBtn.on{ background:var(--arr); color:#fff }
@@ -752,46 +763,51 @@ function renderParteView(){
   const toallas = (parte && parte.toallas) || [];
   const clientes = (parte && parte.clientes) || [];
   const nLleg = pisos.filter(p => p.tipo === 'llegada').length;
-  const rows = pisos.map(p => {
+  const sorted = pisos.slice().sort((a,b) => (String(b.priori).trim()==='1'?1:0) - (String(a.priori).trim()==='1'?1:0));
+  const cards = sorted.map(p => {
     const c = cierreMap['piso|' + p.hab] || {};
     const done = !!c.hecho;
     const estadoCls = p.obs === 'repaso' ? 'repaso' : 'sucia';
-    const prioHtml = String(p.priori).trim() === '1'
-      ? '<span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#1E8C4E;color:#fff;font-weight:800;font-size:12px">1</span>'
-      : '<span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;border:1px solid var(--line);color:var(--soft);font-weight:800;font-size:12px">0</span>';
-    return `<tr class="${done ? 'phecho' : ''}">
-      <td>${prioHtml}</td>
-      <td style="font-weight:800">${esc(p.hab)}</td>
-      <td><span class="pTag ${p.tipo === 'llegada' ? 'lleg' : 'sal'}">${esc(p.tipoLbl || p.tipo)}</span></td>
-      <td><span class="pEstado ${estadoCls}">${esc(p.obs || '—')}</span></td>
-      <td>${esc(p.huesped || '—')}</td>
-      <td>${esc(p.horaSalida || '—')}</td>
-      <td>${esc(p.horaLleg || '—')}</td>
-      <td>${esc(p.pax || '—')}</td>
-      <td>${esc(p.coment || '')}${c.nota ? ' · <i>' + esc(c.nota) + '</i>' : ''}</td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="9" style="color:var(--soft);text-align:center;padding:16px">Sin apartamentos para este día.</td></tr>';
+    const prio1 = String(p.priori).trim() === '1';
+    const metas = [];
+    if (p.pax && p.pax !== '·0·0·0' && !/^0·0·0·0$/.test(p.pax)) metas.push(`<b>${esc(p.pax)}</b> pax`);
+    if (p.cama) metas.push(esc(p.cama));
+    if (p.horaSalida) metas.push('sale: <b>' + esc(p.horaSalida) + '</b>');
+    if (p.horaLleg) metas.push('entra: <b>' + esc(p.horaLleg) + '</b>');
+    return `<div class="pCard${done?' phecho':''}">
+      <div class="pTop">
+        ${prio1 ? '<span class="pPrio1">1</span>' : ''}
+        <span class="pHab">${esc(p.hab)}</span>
+        <span class="pTag ${p.tipo === 'llegada' ? 'lleg' : 'sal'}">${esc(p.tipoLbl || p.tipo)}</span>
+        <span class="pTag ${estadoCls}">${esc(p.obs || '')}</span>
+        ${done ? '<span class="pDoneMark">✓ hecho</span>' : ''}
+      </div>
+      ${p.huesped ? `<div class="pHuesped">${esc(p.huesped)}</div>` : ''}
+      ${metas.length ? `<div class="pMeta">${metas.join(' · ')}</div>` : ''}
+      ${p.coment ? `<div class="pComent">⚠ ${esc(p.coment)}</div>` : ''}
+      ${c.nota ? `<div class="pNota">${esc(c.nota)}</div>` : ''}
+    </div>`;
+  }).join('') || '<div style="color:var(--soft);text-align:center;padding:20px">Sin apartamentos para este día.</div>';
   const toallasHtml = toallas.length ? toallas.map(t => {
     const c = cierreMap['toalla|' + t.hab] || {};
-    return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)">
-      <b style="min-width:44px">${esc(t.hab)}</b><span class="pTag lleg" style="background:#d8f1ec;color:#1f7d72">${esc(t.hora)} h</span>
-      <span>${esc(t.huesped || '')}</span><span style="margin-left:auto;font-weight:700;color:${c.hecho ? '#1E8C4E' : 'var(--soft)'}">${c.hecho ? '✓ hecho' : 'pendiente'}</span>
+    return `<div class="pRow2">
+      <span class="hab">${esc(t.hab)}</span>
+      <span class="pTag lleg" style="background:#d8f1ec;color:#1f7d72">${esc(t.hora)} h</span>
+      <span style="flex:1">${esc(t.huesped || '')}</span>
+      <span style="font-weight:700;font-size:12.5px;color:${c.hecho ? '#1E8C4E' : 'var(--soft)'}">${c.hecho ? '✓ hecho' : 'pendiente'}</span>
     </div>`;
-  }).join('') : '<div style="color:var(--soft)">Sin cambios de toalla para este día.</div>';
+  }).join('') : '<div style="color:var(--soft);font-size:13.5px">Sin cambios de toalla para este día.</div>';
   const clientesHtml = clientes.length ? clientes.map(c => {
     const cc = cierreMap['cliente|' + c.hab] || {};
-    return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)">
-      <b style="min-width:44px">${esc(c.hab)}</b><span>${esc(c.huesped || '')}</span>
-      <span style="margin-left:auto;font-weight:700;color:${cc.hecho ? '#1E8C4E' : 'var(--soft)'}">${cc.hecho ? '✓ hecho' : 'pendiente'}</span>
+    return `<div class="pRow2">
+      <span class="hab">${esc(c.hab)}</span>
+      <span style="flex:1">${esc(c.huesped || '')}</span>
+      <span style="font-weight:700;font-size:12.5px;color:${cc.hecho ? '#1E8C4E' : 'var(--soft)'}">${cc.hecho ? '✓ hecho' : 'pendiente'}</span>
     </div>`;
-  }).join('') : '<div style="color:var(--soft)">Sin limpiezas de cliente para este día.</div>';
+  }).join('') : '<div style="color:var(--soft);font-size:13.5px">Sin limpiezas de cliente para este día.</div>';
   box.innerHTML = `
-    <div style="font-weight:800;font-size:15px;margin-bottom:2px">Apartamentos a limpiar (${pisos.length}) · ${nLleg} con llegada</div>
-    <div style="overflow-x:auto;margin-top:8px">
-      <table class="parteTbl"><thead><tr>
-        <th>Prio</th><th>Hab</th><th>Tipo</th><th>Estado</th><th>Huésped</th><th>Sale</th><th>Entra</th><th>Pax</th><th>Comentarios</th>
-      </tr></thead><tbody>${rows}</tbody></table>
-    </div>
+    <div class="pHeadline">Apartamentos a limpiar <span class="n">${pisos.length} · ${nLleg} con llegada</span></div>
+    ${cards}
     <div class="pSection">Cambio de toallas (${toallas.length})</div>
     ${toallasHtml}
     <div class="pSection">Limpieza de cliente (${clientes.length})</div>
