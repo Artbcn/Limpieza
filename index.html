@@ -791,6 +791,26 @@ async function renderReparto(){
 }
 
 /* ==================== Vista "Parte" en vivo (igual al parte que se comparte) ==================== */
+let forecastCache = null, forecastCacheISO = null;
+function forecastHtmlFor(days){
+  return days.map(d => {
+    const dd = fromISO(d.iso), isToday = d.iso === curISO;
+    const dow = DIAS[dd.getDay()].slice(0,3);
+    return `<div class="fd${isToday ? ' today' : ''}">
+      <div class="fdate">${dow} ${pad(dd.getDate())}/${pad(dd.getMonth()+1)}</div>
+      <div class="fm">T</div><div class="fv${d.toa?' on':''}">${d.toa}</div>
+      <div class="fm">C</div><div class="fv${d.cli?' on':''}">${d.cli}</div>
+      <div class="fm">LLEG</div><div class="fv${d.lleg?' on':''}">${d.lleg}</div>
+      <div class="fm">SAL</div><div class="fv${d.sal?' on':''}">${d.sal}</div>
+    </div>`;
+  }).join('');
+}
+async function refreshForecastCache(){
+  forecastCache = await loadForecastDays();
+  forecastCacheISO = curISO;
+  const fc = $('pivFc'); if (fc) fc.innerHTML = forecastHtmlFor(forecastCache);
+}
+setInterval(() => { if (activeTab === 'parte') refreshForecastCache(); }, 45000);
 async function loadForecastDays(){
   const out = [];
   for (let k = 0; k <= 7; k++){
@@ -861,7 +881,7 @@ async function renderParteView(){
         <div><div class="piv-h3" style="color:#E8A13D">Limpieza de cliente (${clientes.length})</div>${cliHtml}</div>
       </div>
       <div class="piv-h3" style="margin-top:22px">Previsión próximos 7 días</div>
-      <div class="piv-fc" id="pivFc">${Array.from({length:8}).map(()=>'<div class="fd"><div class="fdate">…</div></div>').join('')}</div>
+      <div class="piv-fc" id="pivFc">${(forecastCache && forecastCacheISO === curISO) ? forecastHtmlFor(forecastCache) : Array.from({length:8}).map(()=>'<div class="fd"><div class="fdate">…</div></div>').join('')}</div>
       <div class="piv-legend">
         <span><i style="background:#0FA3A3"></i>toallas</span>
         <span><i style="background:#E8A13D"></i>clientes</span>
@@ -871,20 +891,7 @@ async function renderParteView(){
     </div>
     <div class="piv-footer">Se actualiza solo, en vivo · <span id="pivUpdated">actualizado ahora</span> · ART Limpieza</div>
   </div>`;
-  loadForecastDays().then(days => {
-    const fc = $('pivFc'); if (!fc) return;
-    fc.innerHTML = days.map(d => {
-      const dd = fromISO(d.iso), isToday = d.iso === curISO;
-      const dow = DIAS[dd.getDay()].slice(0,3);
-      return `<div class="fd${isToday ? ' today' : ''}">
-        <div class="fdate">${dow} ${pad(dd.getDate())}/${pad(dd.getMonth()+1)}</div>
-        <div class="fm">T</div><div class="fv${d.toa?' on':''}">${d.toa}</div>
-        <div class="fm">C</div><div class="fv${d.cli?' on':''}">${d.cli}</div>
-        <div class="fm">LLEG</div><div class="fv${d.lleg?' on':''}">${d.lleg}</div>
-        <div class="fm">SAL</div><div class="fv${d.sal?' on':''}">${d.sal}</div>
-      </div>`;
-    }).join('');
-  });
+  if (!forecastCache || forecastCacheISO !== curISO) refreshForecastCache();
 }
 
 function setTab(t){
