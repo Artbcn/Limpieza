@@ -838,11 +838,11 @@ async function renderParteView(){
   }).join('') || `<tr><td colspan="13" style="text-align:center;color:#B7AF9F;padding:16px">Sin apartamentos para este día.</td></tr>`;
   const twHtml = toallas.length ? toallas.map(t => {
     const c = cierreMap['toalla|' + t.hab] || {};
-    return `<div class="piv-tw"><b>${esc(t.hab)}</b><span class="hora">${esc(t.hora)} h</span><span>${esc(t.huesped || '')}</span><span class="estado">${c.hecho ? '✓ hecho' : 'pendiente'}</span></div>`;
+    return `<div class="piv-tw"><b>${esc(t.hab)}</b><span class="hora">${esc(t.hora)} h</span><span>${esc(t.huesped || '')}</span>${t.avisado ? '<span style="font-size:11px;color:#0FA3A3;font-weight:700">✉ avisado</span>' : ''}<span class="estado">${c.hecho ? '✓ hecho' : 'pendiente'}</span></div>`;
   }).join('') : '<div class="piv-none">Sin cambios de toalla</div>';
   const cliHtml = clientes.length ? clientes.map(c => {
     const cc = cierreMap['cliente|' + c.hab] || {};
-    return `<div class="piv-tw"><b>${esc(c.hab)}</b><span>${esc(c.huesped || '')}</span><span class="estado">${cc.hecho ? '✓ hecho' : 'pendiente'}</span></div>`;
+    return `<div class="piv-tw"><b>${esc(c.hab)}</b><span>${esc(c.huesped || '')}</span>${c.avisado ? '<span style="font-size:11px;color:#0FA3A3;font-weight:700">✉ avisado</span>' : ''}<span class="estado">${cc.hecho ? '✓ hecho' : 'pendiente'}</span></div>`;
   }).join('') : '<div class="piv-none">Sin limpiezas de cliente</div>';
   box.innerHTML = `<div class="piv">
     <div class="piv-head">
