@@ -697,22 +697,21 @@ async function renderReparto(){
       <div class="exAddRow"><input class="exInput" data-hab="${esc(hab)}" placeholder="otra tarea para este apto..."><button class="exAddBtn" data-hab="${esc(hab)}">Agregar</button></div>
     </div>`;
   };
-  let hechas = 0, sup = 0, listHtml = '';
+  let hechas = 0, confirmadas = 0, listHtml = '';
   order.forEach(k => {
     const g = tasks.filter(t => t.kind === k); if (!g.length) return;
     listHtml += `<div class="rgrp">${gname[k]} (${g.length})</div>`;
     g.forEach(t => {
-      const c = cierreMap[repKey(t)] || {}, done = !!c.declarado, isSup = !!c.sup;
-      if (done) hechas++; if (isSup) sup++;
+      const c = cierreMap[repKey(t)] || {}, done = !!c.declarado, confirmado = !!c.hecho;
+      if (done) hechas++; if (confirmado) confirmadas++;
       const a = repAsig[repKey(t)] || '', sb2 = repSub(t);
       listHtml += `<div class="rep-item ${done ? 'hecho' : ''}">
-        <div class="rtop"><span class="hab">${esc(t.hab)}</span>${repTag(t)}${done ? '<span class="pill hecho">✓ hecho</span>' : '<span class="pill pend">pendiente</span>'}</div>
+        <div class="rtop"><span class="hab">${esc(t.hab)}</span>${repTag(t)}${confirmado ? '<span class="pill hecho">✓ confirmado</span>' : done ? '<span class="pill" style="background:#fdf0d9;color:#a9741a">declarado</span>' : '<span class="pill pend">pendiente</span>'}</div>
         ${sb2 ? `<div class="rsub">${esc(sb2)}</div>` : ''}
         ${t.huesped ? `<div class="rsub">${esc(t.huesped)}</div>` : ''}
         ${t.coment ? `<div class="rcom">⚠ ${esc(t.coment)}</div>` : ''}
         <div class="rep-row">
           <select data-tk="${esc(repKey(t))}">${optsFor(a)}</select>
-          <button class="supBtn ${isSup ? 'on' : ''}" data-k="${t.kind}" data-b="${esc(t.base)}">${isSup ? '✓ Supervisado' : 'Supervisado'}</button>
         </div>
         ${t.kind === 'piso' ? diariaAptoChecklist(t.hab) + extraChecklist(t.hab) : ''}
         </div>`;
@@ -722,14 +721,13 @@ async function renderReparto(){
   if (diariaTasks.length){
     diariaHtml += `<div class="rgrp">Tareas diarias (${diariaTasks.length})</div>`;
     diariaTasks.forEach(t => {
-      const c = cierreMap[repKey(t)] || {}, done = !!c.declarado, isSup = !!c.sup;
-      if (done) hechas++; if (isSup) sup++;
+      const c = cierreMap[repKey(t)] || {}, done = !!c.declarado, confirmado = !!c.hecho;
+      if (done) hechas++; if (confirmado) confirmadas++;
       const a = repAsig[repKey(t)] || '';
       diariaHtml += `<div class="rep-item ${done ? 'hecho' : ''}">
-        <div class="rtop"><span class="hab">${esc(t.hab)}</span>${repTag(t)}${done ? '<span class="pill hecho">✓ hecho</span>' : '<span class="pill pend">pendiente</span>'}</div>
+        <div class="rtop"><span class="hab">${esc(t.hab)}</span>${repTag(t)}${confirmado ? '<span class="pill hecho">✓ confirmado</span>' : done ? '<span class="pill" style="background:#fdf0d9;color:#a9741a">declarado</span>' : '<span class="pill pend">pendiente</span>'}</div>
         <div class="rep-row">
           <select data-tk="${esc(repKey(t))}">${optsForDaily(a)}</select>
-          <button class="supBtn ${isSup ? 'on' : ''}" data-k="${t.kind}" data-b="${esc(t.base)}">${isSup ? '✓ Supervisado' : 'Supervisado'}</button>
         </div>
         <div style="margin-top:4px"><a href="#" class="toPorApto" data-id="${esc(t.base)}" style="font-size:12px;color:var(--soft)">Cambiar a "anotar en cada apartamento" en vez de tarea única</a></div>
         </div>`;
@@ -755,17 +753,18 @@ async function renderReparto(){
       extraLogHtml += `<div class="rgrp">Reportado por las chicas (${deEmpleada.length})</div>`;
       extraLogHtml += deEmpleada.map(e => {
         const fotos = (e.fotos || []).map(u => `<img src="${esc(u)}" style="width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--line);margin:4px 6px 0 0;cursor:pointer" onclick="window.open('${esc(u)}','_blank')">`).join('');
-        return `<div class="rep-item${e.sup ? ' hecho' : ''}">
-          <div class="rtop"><span class="hab">${esc(e.hab || 'sin apto')}</span><span class="rtag otro">${esc(e.empleada)}</span></div>
+        const confirmado = e.hab ? !!(cierreMap['piso|' + e.hab] && cierreMap['piso|' + e.hab].hecho) : false;
+        return `<div class="rep-item${confirmado ? ' hecho' : ''}">
+          <div class="rtop"><span class="hab">${esc(e.hab || 'sin apto')}</span><span class="rtag otro">${esc(e.empleada)}</span>${confirmado ? '<span class="pill hecho">✓ confirmado</span>' : '<span class="pill" style="background:#fdf0d9;color:#a9741a">declarado</span>'}</div>
           ${e.nota ? `<div class="rsub">${esc(e.nota)}</div>` : ''}
           ${fotos ? `<div style="display:flex;flex-wrap:wrap">${fotos}</div>` : ''}
-          <div class="rep-row"><button class="supBtn2${e.sup ? ' on' : ''}" data-id="${esc(e.id)}">${e.sup ? '✓ Supervisado' : 'Supervisado'}</button></div>
+          ${e.hab ? '<div class="rsub" style="color:var(--soft)">Pasa a Cierre del día cuando el apto ' + esc(e.hab) + ' quede marcado hecho en Marcar.</div>' : '<div class="rsub" style="color:var(--soft)">Sin apto asociado — se lo comentás a Andrés directo.</div>'}
         </div>`;
       }).join('');
     }
   }
   box.innerHTML =
-    `<div class="rsummary">${hechas} hechas · ${sup} supervisadas · de ${tasks.length + diariaTasks.length}</div>`
+    `<div class="rsummary">${hechas} declaradas · ${confirmadas} confirmadas · de ${tasks.length + diariaTasks.length}</div>`
     + `<div class="rep-emp"><div style="font-weight:700">Empleadas</div><div class="chips" id="repEmpChips">${chips}</div>`
     + `<div class="addemp"><input id="repEmpName" placeholder="Nombre de la empleada"><button id="repEmpAdd">Agregar</button></div></div>`
     + `<div class="rep-emp"><div style="font-weight:700">Tareas diarias (se repiten todos los días)</div><div class="chips" id="repDiariaChips">${diariaChips}</div>`
@@ -773,9 +772,6 @@ async function renderReparto(){
     + `<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--soft);margin-top:6px"><input type="checkbox" id="repDiariaPorApto"> Pedirles que anoten algo en CADA apartamento (ej: color del piso del baño), en vez de una tarea única</label></div>`
     + diariaHtml + listHtml + extraLogHtml;
   box.querySelectorAll('select[data-tk]').forEach(s => s.addEventListener('change', () => repSetAsig(s.dataset.tk, s.value)));
-  box.querySelectorAll('.supBtn').forEach(b => b.addEventListener('click', async () => { await repSetSup(b.dataset.k, b.dataset.b, !b.classList.contains('on')); renderReparto(); }));
-  box.querySelectorAll('.supBtn2[data-id]').forEach(b => b.addEventListener('click', async () => { await repSetSupExtraById(b.dataset.id, !b.classList.contains('on')); renderReparto(); }));
-  box.querySelectorAll('.supBtn2[data-daptokey]').forEach(b => b.addEventListener('click', async () => { await repSetSupDiariaApto(b.dataset.daptokey, !b.classList.contains('on')); renderReparto(); }));
   box.querySelectorAll('.toPorApto').forEach(a => a.addEventListener('click', async ev => {
     ev.preventDefault();
     if (!confirm('¿Convertir esta tarea en "anotar en cada apartamento"? Va a dejar de aparecer como tarea única.')) return;
