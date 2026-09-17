@@ -679,14 +679,13 @@ async function renderReparto(){
     if (!porApto.length) return '';
     const rows = porApto.map(d => {
       const key = 'diaria_apto|' + hab + '§' + d.id;
-      const c = cierreMap[key] || {}, done = !!c.declarado, isSup = !!c.sup;
+      const c = cierreMap[key] || {};
       return `<div class="rep-row" style="margin-top:6px;align-items:center">
         <span style="font-size:12.5px;color:var(--muted)">${esc(d.texto)}:</span>
         <span style="flex:1;font-weight:700;font-size:13px">${c.nota ? esc(c.nota) : '<i style="color:var(--soft);font-weight:400">sin anotar todavía</i>'}</span>
-        ${done ? `<button class="supBtn2${isSup ? ' on' : ''}" data-daptokey="${esc(key)}">${isSup ? '✓ Supervisado' : 'Supervisado'}</button>` : ''}
       </div>`;
     }).join('');
-    return `<div class="rep-extra"><div class="rep-extra-lbl">Anotaciones diarias de este apto</div>${rows}</div>`;
+    return `<div class="rep-extra"><div class="rep-extra-lbl">Anotaciones diarias de este apto <span style="font-weight:400;color:var(--soft)">(pasan solo cuando el apto queda marcado hecho)</span></div>${rows}</div>`;
   };
   const extraChecklist = (hab) => {
     const items = repExtraTareas[hab] || [];
