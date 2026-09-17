@@ -811,23 +811,31 @@ async function renderParteView(){
   const pisos = (parte && parte.pisos) || [];
   const toallas = (parte && parte.toallas) || [];
   const clientes = (parte && parte.clientes) || [];
+  const fondos = (parte && parte.fondos) || [];
+  const notas = (parte && parte.notas) || '';
+  const fondoByHab = {}; fondos.forEach(f => { fondoByHab[f.hab] = f.acciones || []; });
   const nLleg = pisos.filter(p => p.tipo === 'llegada').length;
   const rows = pisos.map(p => {
     const c = cierreMap['piso|' + p.hab] || {};
     const prio1 = String(p.priori).trim() === '1';
     const estadoCls = p.obs === 'repaso' ? 'repaso' : 'sucia';
-    return `<tr>
-      <td><span class="pivPrio ${prio1 ? 'on' : 'off'}">${prio1 ? '1' : '0'}</span></td>
-      <td style="font-weight:800">${esc(p.hab)}</td>
+    const acciones = (fondoByHab[p.hab] || []).map(a => a.label).join(', ');
+    return `<tr class="${c.hecho ? 'phecho' : ''}">
+      <td>${esc(p.hab)}</td>
       <td><span class="pivTag ${p.tipo === 'llegada' ? 'lleg' : 'sal'}">${esc(p.tipoLbl || p.tipo)}</span></td>
-      <td><span class="pivEstado ${estadoCls}">${esc(p.obs || '')}</span></td>
-      <td style="font-weight:600">${esc(p.huesped || '')}</td>
-      <td>${esc(p.horaSalida || '')}</td>
+      <td>${esc(p.huesped || '')}</td>
+      <td>${esc(p.llegada || '')}</td>
+      <td>${esc(p.salida || '')}</td>
       <td>${esc(p.horaLleg || '')}</td>
       <td>${esc(p.pax || '')}</td>
+      <td>${esc(p.cama || '')}</td>
+      <td><span class="pivPrio ${prio1 ? 'on' : 'off'}">${prio1 ? '1' : '0'}</span></td>
+      <td><span class="pivEstado ${estadoCls}">${esc(p.obs || '')}</span></td>
+      <td>${esc(p.horaSalida || '')}</td>
+      <td style="color:#0e7a7a">${esc(acciones)}</td>
       <td style="color:#B5730F">${esc(p.coment || '')}${c.nota ? (p.coment ? ' · ' : '') + esc(c.nota) : ''}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="9" style="text-align:center;color:#B7AF9F;padding:16px">Sin apartamentos para este día.</td></tr>`;
+  }).join('') || `<tr><td colspan="13" style="text-align:center;color:#B7AF9F;padding:16px">Sin apartamentos para este día.</td></tr>`;
   const twHtml = toallas.length ? toallas.map(t => {
     const c = cierreMap['toalla|' + t.hab] || {};
     return `<div class="piv-tw"><b>${esc(t.hab)}</b><span class="hora">${esc(t.hora)} h</span><span>${esc(t.huesped || '')}</span><span class="estado">${c.hecho ? '✓ hecho' : 'pendiente'}</span></div>`;
@@ -845,8 +853,9 @@ async function renderParteView(){
     <div class="piv-body">
       <div class="piv-h3">Apartamentos a limpiar (${pisos.length}) · ${nLleg} con llegada</div>
       <div style="overflow-x:auto"><table class="pivTbl"><thead><tr>
-        <th>Prio</th><th>Hab</th><th>Tipo</th><th>Estado</th><th>Huésped</th><th>Sale</th><th>Entra</th><th>Pax</th><th>Comentarios</th>
+        <th>Hab</th><th>Tipo</th><th>Huésped</th><th>Llegada</th><th>Salida</th><th>Hora lleg</th><th>Pax</th><th>Cama</th><th>Priori</th><th>Observa</th><th>Hora salida</th><th>Fondo salida</th><th>Comentarios</th>
       </tr></thead><tbody>${rows}</tbody></table></div>
+      ${notas.trim() ? `<div class="piv-h3" style="margin-top:22px">Notas para el equipo</div><div style="white-space:pre-wrap;font-size:13.5px;color:#17313B;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px">${esc(notas)}</div>` : ''}
       <div class="piv-2col">
         <div><div class="piv-h3" style="color:#0FA3A3">Cambio de toallas (${toallas.length})</div>${twHtml}</div>
         <div><div class="piv-h3" style="color:#E8A13D">Limpieza de cliente (${clientes.length})</div>${cliHtml}</div>
