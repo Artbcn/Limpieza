@@ -13,6 +13,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com/">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{ --ink:#17313B; --teal:#0FA3A3; --orange:#E8A13D; --arr:#1E8C4E; --dep:#C0392B;
          --bg:#faf8f3; --card:#fff; --line:#e7e2d6; --soft:#7b7466; }
@@ -157,6 +158,18 @@
   .exAddRow{ display:flex; gap:6px }
   .exInput{ flex:1; border:1px solid var(--line); border-radius:9px; padding:7px 9px; font-family:inherit; font-size:13px }
   .exAddBtn{ border:none; background:var(--teal); color:#fff; border-radius:9px; padding:7px 12px; font-weight:700; cursor:pointer; font-family:inherit; font-size:13px }
+  /* --- Limpieza de fondo (agregado) --- */
+  .fdBtn{ font-size:13.5px; font-weight:700; border:none; border-radius:10px; padding:10px 16px; background:var(--ink); color:#fff; cursor:pointer; font-family:inherit }
+  .fdSubtab{ border:1px solid var(--line); background:#fff; border-radius:999px; padding:7px 14px; font-weight:700; font-size:13px; cursor:pointer; font-family:inherit; color:var(--soft) }
+  .fdSubtab.on{ background:var(--ink); color:#fff; border-color:var(--ink) }
+  .calMonthsGrid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:12px; }
+  .calMonthCard{ background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+  .calMonthCard.cur{ border-color:#E8A13D; border-width:2px; background:#fffaf0; }
+  .calMonthTitle{ font-weight:800; font-size:14px; text-transform:capitalize; margin-bottom:8px; display:flex; align-items:center; gap:8px }
+  .calNow{ font-size:10px; font-weight:800; background:#E8A13D; color:#fff; border-radius:10px; padding:2px 8px; text-transform:uppercase }
+  .calMonthPills{ display:flex; flex-wrap:wrap; min-height:28px }
+  .cal-cell{ border:1.5px solid var(--line); border-radius:20px; padding:5px 11px; margin:3px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit; background:#fff }
+  .cal-cell.locked{ cursor:default; opacity:.75 }
 </style>
 </head>
 <body>
@@ -207,6 +220,7 @@
   <button id="tabMarcar" class="tab active">Marcar</button>
   <button id="tabReparto" class="tab">Reparto</button>
   <button id="tabParte" class="tab">Parte</button>
+  <button id="tabFondo" class="tab">Fondo</button>
 </div>
 
 <div class="wrap" id="wrap">
@@ -216,6 +230,9 @@
   <div class="none">Cargando…</div>
 </div>
 <div class="wrap" id="parteWrap" style="display:none">
+  <div class="none">Cargando…</div>
+</div>
+<div class="wrap" id="fondoWrap" style="display:none">
   <div class="none">Cargando…</div>
 </div>
 
@@ -637,6 +654,388 @@ const sugChips = (hab) => {
   if (!relevant.length) return '<span style="font-size:12px;color:var(--soft)">Sin limpiezas de fondo asignadas a este apto este mes.</span>';
   return relevant.map(task => `<button class="exSug" data-hab="${esc(hab)}" data-txt="${esc(task.label)}" type="button">+ ${esc(task.label)}</button>`).join('');
 };
+
+/* ================= Limpieza de fondo: CREAR y PROGRAMAR tareas (agregado) =================
+   Lee y ESCRIBE las mismas claves de localStorage que usa la app de Andrés (recepcion), para que
+   lo que ella cree/edite acá se vea allá y viceversa (comparten origen artbcn.github.io). */
+function lsSet(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+const fmtShort = d => `${pad(d.getDate())}/${pad(d.getMonth()+1)}`;
+const MESES_C = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+function normDesc(s){ return String(s || '').toLowerCase().trim().replace(/\s+/g, ' '); }
+const cmpHab = (a,b) => String(a).localeCompare(String(b), undefined, { numeric:true });
+const ALL_HABS = ["101","102","103","104","105","106","107","201","202","203","204","205","206","207",
+                   "301","302","303","304","305","306","307","401","402","403","404","405","406","407"];
+let _undoToastTimer;
+function showUndoToast(msg, onUndo){
+  let b = document.getElementById('undoToast');
+  if (!b){
+    b = document.createElement('div');
+    b.id = 'undoToast';
+    b.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:10000;background:#213b42;color:#fff;padding:10px 10px 10px 16px;border-radius:12px;box-shadow:0 4px 18px rgba(0,0,0,.25);display:flex;align-items:center;gap:14px;font-size:14px;max-width:90vw';
+    document.body.appendChild(b);
+  }
+  clearTimeout(_undoToastTimer);
+  b.innerHTML = `<span>${esc(msg)}</span><button id="undoToastBtn" style="background:#2fae9f;color:#fff;border:none;border-radius:8px;padding:7px 12px;font-weight:700;cursor:pointer;white-space:nowrap">Deshacer</button>`;
+  b.style.display = 'flex';
+  document.getElementById('undoToastBtn').onclick = () => { clearTimeout(_undoToastTimer); b.style.display = 'none'; onUndo(); };
+  _undoToastTimer = setTimeout(() => { b.style.display = 'none'; }, 7000);
+}
+const VECES_OPCIONES = [1,2,3,4,6,12];
+function monthSelect(id, idx, val){
+  const opts = MESES_C.map((m,i) => `<option value="${i+1}"${(i+1)===val?' selected':''}>${m}</option>`).join('');
+  return `<select class="pe-m" data-id="${esc(id)}" data-idx="${idx}" style="border:1px solid var(--line);border-radius:8px;padding:5px 6px">${opts}</select>`;
+}
+function daySelect(cls, id, field, val){
+  const opts = Array.from({length:31}, (_,i)=>i+1).map(d => `<option value="${d}"${d===val?' selected':''}>${d}</option>`).join('');
+  return `<select class="${cls}" data-id="${esc(id)}" data-field="${field}" style="border:1px solid var(--line);border-radius:8px;padding:5px 6px">${opts}</select>`;
+}
+function monthSelect2(cls, id, field, val){
+  const opts = MESES_C.map((m,i) => `<option value="${i+1}"${(i+1)===val?' selected':''}>${m}</option>`).join('');
+  return `<select class="${cls}" data-id="${esc(id)}" data-field="${field}" style="border:1px solid var(--line);border-radius:8px;padding:5px 6px">${opts}</select>`;
+}
+function spreadMonths(n){
+  if (n >= 12) return Array.from({length:12}, (_,i) => i+1);
+  const out = []; const step = 12 / n;
+  for (let i=0;i<n;i++) out.push((Math.round(i*step) % 12) + 1);
+  return [...new Set(out)];
+}
+/* mismo catálogo "de fábrica" que recepcion.html, para que los ids de tarea coincidan entre ambas apps */
+const PERIOD_DEFAULTS = [
+  { id:'cafetera',    cat:'limpieza', scope:'apto', label:'Descalcificar cafetera',                  period:{ type:'times', months:[1,2,3,4,5,6,7,8,9,10,11,12] } },
+  { id:'aerotermia',  cat:'limpieza', scope:'apto', label:'Limpiar aerotermia',                       period:{ type:'times', months:[2,5,8,11] } },
+  { id:'rodapie',     cat:'limpieza', scope:'apto', label:'Limpiar rodapié cocina',                   period:{ type:'times', months:[11,4] } },
+  { id:'sofas',       cat:'limpieza', scope:'apto', label:'Cambiar funda sofá',                       period:{ type:'times', months:[11] } },
+  { id:'techo',       cat:'limpieza', scope:'apto', label:'Limpiar falso techo',                      period:{ type:'times', months:[11] } },
+  { id:'cortinas',     cat:'mantenimiento', scope:'apto', label:'Sacar, lavar y colocar cortinas',        period:{ type:'times', months:[7] } },
+  { id:'desague',      cat:'mantenimiento', scope:'apto', label:'Revisar desagüe cocina',                 period:{ type:'times', months:[9,4] } },
+  { id:'extractor',    cat:'mantenimiento', scope:'apto', label:'Limpiar extractor baño y comedor',       period:{ type:'times', months:[9,4] } },
+  { id:'colchones',    cat:'mantenimiento', scope:'apto', label:'Limpieza de colchones',                  period:{ type:'manual' } },
+  { id:'bypass',       cat:'mantenimiento', scope:'apto', label:'Limpiar bypass baños',                   period:{ type:'manual' } },
+  { id:'silicona_coc', cat:'mantenimiento', scope:'apto', label:'Silicona cocina',                        period:{ type:'manual' } },
+  { id:'filtro_ac2',   cat:'mantenimiento', scope:'apto', label:'Filtro AC',                              period:{ type:'manual' } },
+  { id:'pintura',      cat:'mantenimiento', scope:'apto', label:'Pintura',                                period:{ type:'manual' } },
+  { id:'puerta_bano',  cat:'mantenimiento', scope:'apto', label:'Puerta baño',                            period:{ type:'manual' } },
+  { id:'purg_aero',    cat:'mantenimiento', scope:'apto', label:'Purgador de aerotermia',                 period:{ type:'manual' } },
+  { id:'caudalim2',    cat:'mantenimiento', scope:'apto', label:'Caudalímetro',                           period:{ type:'times', months:[5] } },
+  { id:'campana',      cat:'mantenimiento', scope:'apto', label:'Campana cocina',                         period:{ type:'times', months:[4,5] } },
+  { id:'purg_pasillo', cat:'comunes',       scope:'comun', label:'Purgador de pasillos',                  period:{ type:'manual' } },
+  { id:'placa_solar',  cat:'comunes',       scope:'comun', label:'Placa solar',                           period:{ type:'times', months:[1,3,5,7,9,11] } },
+  { id:'piscina',      cat:'comunes',       scope:'comun', label:'Bordes de piscina',                     period:{ type:'seasonal_daily', dailyMonths:[6,7,8,9] } },
+];
+function deletedDefaultIds(){ return lsGet('art-period-deleted-defaults', []); }
+function saveDeletedDefaultIds(list){ lsSet('art-period-deleted-defaults', list); }
+function periodDefs(){
+  let d = lsGet('art-period-defs', null);
+  const delIds = new Set(deletedDefaultIds());
+  if (!d || !d.length) return PERIOD_DEFAULTS.filter(t => !delIds.has(t.id));
+  let changed = false;
+  const ids = new Set(d.map(t => t.id));
+  const missing = PERIOD_DEFAULTS.filter(t => !ids.has(t.id) && !delIds.has(t.id));
+  if (missing.length){ d = d.concat(missing); changed = true; }
+  for (const t of d){
+    if (!t.period) continue;
+    if (t.period.type === 'windows'){ t.period = { type:'times', months: (t.period.ranges||[]).map(([a,b]) => b) }; changed = true; }
+    else if (t.period.type === 'interval'){
+      const n = t.period.months || 1, anchorM = t.period.anchorMonth || 1;
+      const set = new Set();
+      for (let k = 0; k < 12; k++){ set.add((((anchorM - 1) + k * n) % 12 + 12) % 12 + 1); if (set.size >= Math.round(12 / n)) break; }
+      t.period = { type:'times', months: [...set].sort((a,b) => a-b) };
+      changed = true;
+    }
+  }
+  if (changed) savePeriodDefs(d);
+  return d;
+}
+function savePeriodDefs(list){ lsSet('art-period-defs', list); }
+function periodEstado(){ return lsGet('art-period-estado', {}); }
+function periodCurrentWindow(task, day){
+  const y = day.getFullYear(); const p = task.period || {};
+  if (p.type === 'times' && p.months && p.months.length){
+    let best = null;
+    const diaIni = p.diaIni || 1;
+    for (const yy of [y, y+1]){
+      for (const m of p.months){
+        const ldm = lastDayOfMonth(yy, m);
+        const diaFin = Math.min(p.diaFin || 31, ldm);
+        const start = new Date(yy, m-1, Math.min(diaIni, ldm)), end = new Date(yy, m-1, diaFin);
+        if (end >= day && (!best || start < best.start)) best = { key:`${task.id}-${yy}-${pad(m)}`, start, end };
+      }
+    }
+    return best;
+  }
+  if (p.type === 'daterange' && p.d1 && p.m1 && p.d2 && p.m2){
+    let best = null;
+    for (const yy of [y-1, y, y+1]){
+      const start = new Date(yy, p.m1-1, p.d1);
+      const wraps = (p.m2 < p.m1) || (p.m2 === p.m1 && p.d2 < p.d1);
+      const end = new Date(yy + (wraps?1:0), p.m2-1, p.d2);
+      if (end >= day && (!best || start < best.start)) best = { key:`${task.id}-${yy}-${pad(p.m1)}${pad(p.d1)}`, start, end };
+    }
+    return best;
+  }
+  return null;
+}
+function periodEditorHtml(task){
+  const p = task.period || { type:'manual' };
+  const isTimes = p.type === 'times';
+  const isRolling = p.type === 'rolling';
+  const isDaterange = p.type === 'daterange';
+  const isManual = !isTimes && !isRolling && !isDaterange;
+  const months = (isTimes && p.months && p.months.length) ? p.months : [1];
+  const n = months.length;
+  const vecesOpts = VECES_OPCIONES.map(v => `<option value="${v}"${(isTimes && v===n)?' selected':''}>${v} vez${v===1?'':'es'} al año (mes fijo)</option>`).join('');
+  const monthPickers = (n >= 12) ? '<span style="font-size:12px;color:var(--soft)">(todos los meses)</span>'
+    : months.map((m, idx) => monthSelect(task.id, idx, m)).join(' ');
+  const dr = { d1: (isDaterange && p.d1) || 1, m1: (isDaterange && p.m1) || 1, d2: (isDaterange && p.d2) || 1, m2: (isDaterange && p.m2) || 1 };
+  const diaIni = (isTimes && p.diaIni) || 1, diaFin = (isTimes && p.diaFin) || 31;
+  return `<select class="pe-veces" data-id="${esc(task.id)}" style="border:1px solid var(--line);border-radius:8px;padding:6px">
+      <option value="manual"${isManual?' selected':''}>Sin período (manual)</option>
+      ${vecesOpts}
+      <option value="rolling"${isRolling?' selected':''}>Cada N meses (desde la última vez)</option>
+      <option value="daterange"${isDaterange?' selected':''}>Rango de fechas fijo (día y mes)</option>
+    </select>
+    <span class="pe-months-wrap" style="display:${isTimes?'inline-flex':'none'};gap:6px;align-items:center;flex-wrap:wrap">${monthPickers}</span>
+    <span class="pe-times-days-wrap" style="display:${isTimes?'inline-flex':'none'};gap:6px;align-items:center;flex-wrap:wrap;width:100%;margin-top:4px">
+      <span style="font-size:12px;color:var(--soft)">solo del día</span>
+      ${daySelect('pe-td',task.id,'diaIni',diaIni)}
+      <span style="font-size:12px;color:var(--soft)">al día</span>
+      ${daySelect('pe-td',task.id,'diaFin',diaFin)}
+      <span style="font-size:12px;color:var(--soft)">de cada mes (dejalo en 1 y 31 para todo el mes)</span>
+    </span>
+    <span class="pe-rolling-wrap" style="display:${isRolling?'inline-flex':'none'};gap:6px;align-items:center;flex-wrap:wrap;width:100%">
+      <span style="display:inline-flex;gap:6px;align-items:center">cada <input type="number" min="1" class="pe-rolling-n" data-id="${esc(task.id)}" value="${isRolling ? (p.months||1) : 1}" style="width:48px;border:1px solid var(--line);border-radius:8px;padding:5px 6px"> mes(es), contados desde que se marca hecha</span>
+      <span style="width:100%;font-size:12px;color:var(--soft);margin-top:4px">solo si el mes que toca es (dejalo todo destildado para que valga cualquier mes):</span>
+      <span style="display:flex;flex-wrap:wrap;gap:4px">${MESES_C.map((m,i) => {
+        const on = isRolling && (p.mesesValidos||[]).includes(i+1);
+        return `<button type="button" class="pe-rolling-mes" data-id="${esc(task.id)}" data-m="${i+1}" style="border:1.5px solid ${on?'#E8A13D':'var(--line)'};background:${on?'#fdf0d9':'#fff'};color:${on?'#9a6a0a':'var(--soft)'};border-radius:7px;padding:4px 7px;font-size:11.5px;font-weight:700;cursor:pointer">${m}</button>`;
+      }).join('')}</span>
+    </span>
+    <span class="pe-daterange-wrap" style="display:${isDaterange?'inline-flex':'none'};gap:6px;align-items:center;flex-wrap:wrap">
+      desde ${daySelect('pe-dr',task.id,'d1',dr.d1)} ${monthSelect2('pe-dr',task.id,'m1',dr.m1)}
+      hasta ${daySelect('pe-dr',task.id,'d2',dr.d2)} ${monthSelect2('pe-dr',task.id,'m2',dr.m2)}
+    </span>`;
+}
+function renderPeriodPanelRW(){
+  const box = document.getElementById('fondoTareasBody'); if (!box) return;
+  const defs = periodDefs().filter(t => t.cat === 'limpieza');
+  let html = `<button class="fdBtn" onclick="periodAddTaskRW()" style="margin-bottom:14px">+ Agregar tarea</button>`;
+  for (const task of defs){
+    const win = periodCurrentWindow(task, new Date());
+    html += `<div style="background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;margin:8px 0">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <input class="pe-label" data-id="${esc(task.id)}" value="${esc(task.label)}" style="font-weight:700;border:1px solid var(--line);border-radius:8px;padding:6px 8px;flex:1;min-width:160px">
+        <button class="p-del-task" data-id="${esc(task.id)}" style="border:none;background:transparent;color:#c0392b;cursor:pointer">✕</button>
+      </div>
+      <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">${periodEditorHtml(task)}
+        <span style="color:var(--soft);font-size:12.5px">${win ? '· vigente hasta ' + fmtShort(win.end) : ''}</span>
+      </div>
+    </div>`;
+  }
+  if (!defs.length) html += '<div class="none" style="display:block">Sin tareas todavía.</div>';
+  box.innerHTML = html;
+  wirePeriodPanelRW();
+}
+function periodAddTaskRW(){
+  const defs = periodDefs();
+  const id = 'custom' + Date.now().toString(36);
+  defs.push({ id, cat:'limpieza', scope:'apto', label:'Nueva tarea', period:{ type:'manual' } });
+  savePeriodDefs(defs);
+  renderPeriodPanelRW();
+  const inp = document.querySelector(`.pe-label[data-id="${id}"]`);
+  if (inp){
+    inp.focus(); inp.select();
+    inp.addEventListener('blur', () => {
+      const cur = periodDefs();
+      const mine = cur.find(t => t.id === id); if (!mine) return;
+      const dup = cur.find(t => t.id !== id && t.cat==='limpieza' && normDesc(t.label) === normDesc(mine.label) && normDesc(mine.label) !== 'nueva tarea');
+      if (dup) alert(`Ya existe una tarea llamada "${dup.label}" en esta lista. Cambiale el nombre a esta nueva para no tener dos iguales.`);
+    }, { once:true });
+  }
+}
+function wirePeriodPanelRW(){
+  const box = document.getElementById('fondoTareasBody'); if (!box) return;
+  box.querySelectorAll('.p-del-task').forEach(b => b.addEventListener('click', () => {
+    if (!confirm('¿Borrar esta tarea periódica? (se pierde su historial de marcado)')) return;
+    const id = b.dataset.id;
+    const defs = periodDefs();
+    const idx = defs.findIndex(t => t.id === id);
+    if (idx === -1) return;
+    const removed = defs[idx];
+    const isDefault = PERIOD_DEFAULTS.some(t => t.id === id);
+    defs.splice(idx, 1);
+    savePeriodDefs(defs);
+    if (isDefault){ const del = deletedDefaultIds(); if (!del.includes(id)) del.push(id); saveDeletedDefaultIds(del); }
+    renderPeriodPanelRW();
+    showUndoToast(`Tarea "${removed.label}" eliminada`, () => {
+      const d2 = periodDefs();
+      if (!d2.some(t => t.id === id)){ d2.splice(idx, 0, removed); savePeriodDefs(d2); }
+      if (isDefault){ saveDeletedDefaultIds(deletedDefaultIds().filter(x => x !== id)); }
+      renderPeriodPanelRW();
+    });
+  }));
+  box.querySelectorAll('.pe-label').forEach(inp => { let t=null; inp.addEventListener('input', () => { clearTimeout(t); t=setTimeout(() => {
+    const defs = periodDefs(); const d = defs.find(x => x.id === inp.dataset.id); if (!d) return;
+    if (d.label === inp.value) return;
+    d.label = inp.value; savePeriodDefs(defs);
+  }, 500); }); });
+  box.querySelectorAll('.pe-veces').forEach(sel => sel.addEventListener('change', () => {
+    const defs = periodDefs(); const d = defs.find(x => x.id === sel.dataset.id); if (!d) return;
+    if (sel.value === 'manual'){ d.period = { type:'manual' }; }
+    else if (sel.value === 'rolling'){ d.period = { type:'rolling', months: 1 }; }
+    else if (sel.value === 'daterange'){ d.period = { type:'daterange', d1:1, m1:1, d2:1, m2:2 }; }
+    else { const n = parseInt(sel.value); d.period = { type:'times', months: spreadMonths(n) }; }
+    savePeriodDefs(defs); renderPeriodPanelRW();
+  }));
+  box.querySelectorAll('.pe-dr').forEach(sel => sel.addEventListener('change', () => {
+    const defs = periodDefs(); const d = defs.find(x => x.id === sel.dataset.id); if (!d || !d.period) return;
+    d.period[sel.dataset.field] = parseInt(sel.value);
+    savePeriodDefs(defs); renderPeriodPanelRW();
+  }));
+  box.querySelectorAll('.pe-td').forEach(sel => sel.addEventListener('change', () => {
+    const defs = periodDefs(); const d = defs.find(x => x.id === sel.dataset.id); if (!d || !d.period) return;
+    d.period[sel.dataset.field] = parseInt(sel.value);
+    savePeriodDefs(defs); renderPeriodPanelRW();
+  }));
+  box.querySelectorAll('.pe-m').forEach(sel => sel.addEventListener('change', () => {
+    const defs = periodDefs(); const d = defs.find(x => x.id === sel.dataset.id); if (!d || !d.period || !d.period.months) return;
+    const idx = parseInt(sel.dataset.idx); d.period.months[idx] = parseInt(sel.value);
+    savePeriodDefs(defs); renderPeriodPanelRW();
+  }));
+  box.querySelectorAll('.pe-rolling-n').forEach(inp => inp.addEventListener('change', () => {
+    const defs = periodDefs(); const d = defs.find(x => x.id === inp.dataset.id); if (!d || !d.period) return;
+    d.period.months = Math.max(1, parseInt(inp.value) || 1);
+    savePeriodDefs(defs); renderPeriodPanelRW();
+  }));
+  box.querySelectorAll('.pe-rolling-mes').forEach(btn => btn.addEventListener('click', () => {
+    const defs = periodDefs(); const d = defs.find(x => x.id === btn.dataset.id); if (!d || !d.period) return;
+    const m = parseInt(btn.dataset.m);
+    const set = new Set(d.period.mesesValidos || []);
+    if (set.has(m)) set.delete(m); else set.add(m);
+    d.period.mesesValidos = [...set].sort((a,b)=>a-b);
+    savePeriodDefs(defs); renderPeriodPanelRW();
+  }));
+}
+/* ---- Calendario (solo limpieza) + Control por apartamento + Excel, igual que en la app de Andrés ---- */
+function renderPeriodCalendarPanelRW(){
+  const box = document.getElementById('fondoCalBody'); if (!box) return;
+  const today = new Date(); const y = today.getFullYear();
+  const defs = periodDefs().filter(t => t.cat === 'limpieza');
+  const curM = today.getMonth()+1;
+  const dueByTask = new Map();
+  for (const task of defs){
+    const due = new Set();
+    if (task.period && task.period.type !== 'manual'){
+      for (let m=1;m<=12;m++){
+        const win = periodCurrentWindow(task, new Date(y, m-1, 15));
+        if (win && win.start.getFullYear() <= y && win.end.getFullYear() >= y){
+          for (let mm = Math.max(1, win.start.getFullYear()===y?win.start.getMonth()+1:1); mm <= Math.min(12, win.end.getFullYear()===y?win.end.getMonth()+1:12); mm++) due.add(mm);
+        }
+      }
+    }
+    dueByTask.set(task.id, due);
+  }
+  let html = '<div style="background:var(--card);border:1px dashed var(--line);border-radius:14px;padding:16px;text-align:left;color:var(--soft);font-size:13px;margin-bottom:14px">Cada tarjeta es un mes. Tocá un botón para prender/apagar esa tarea ese mes (solo tareas "manual" o "X veces al año" — las de 🔒 se editan como rango de fechas o cada N meses, arriba en "Tareas").</div>';
+  html += '<div class="calMonthsGrid">';
+  for (let m=1;m<=12;m++){
+    const isCur = m===curM;
+    const enEsteMes = defs.filter(t => dueByTask.get(t.id).has(m));
+    const pills = enEsteMes.map(task => {
+      const editable = !task.period || task.period.type === 'manual' || task.period.type === 'times';
+      return `<button class="cal-cell${editable?'':' locked'}" data-id="${esc(task.id)}" data-m="${m}" ${editable?'':'disabled'}
+        style="border-color:#bfe6cd;background:#e7f5ec;color:#128a4a;opacity:${editable?'1':'.75'}">
+        ${editable?'':'🔒 '}${esc(task.label)}</button>`;
+    }).join('');
+    html += `<div class="calMonthCard${isCur?' cur':''}">
+      <div class="calMonthTitle">${MESES_C[m-1]}${isCur?' <span class="calNow">hoy</span>':''}</div>
+      <div class="calMonthPills">${pills || '<span style="color:var(--soft);font-size:12.5px;font-style:italic">Sin tareas</span>'}</div>
+      <select class="calAddSel" data-m="${m}" style="margin-top:8px;width:100%;font-size:12px;border:1px solid var(--line);border-radius:7px;padding:4px">
+        <option value="">+ agregar tarea a este mes...</option>
+        ${defs.filter(t => (!t.period || t.period.type==='manual' || t.period.type==='times') && !dueByTask.get(t.id).has(m)).map(t => `<option value="${esc(t.id)}">${esc(t.label)}</option>`).join('')}
+      </select>
+    </div>`;
+  }
+  html += '</div>';
+  html += renderControlTableHtmlRW();
+  box.innerHTML = html;
+  box.querySelectorAll('.cal-cell:not(.locked)').forEach(btn => btn.addEventListener('click', () => toggleCalMonthRW(btn.dataset.id, parseInt(btn.dataset.m))));
+  box.querySelectorAll('.calAddSel').forEach(sel => sel.addEventListener('change', () => {
+    if (sel.value) toggleCalMonthRW(sel.value, parseInt(sel.dataset.m));
+  }));
+  const exportBtn = document.getElementById('btnExportControlRW');
+  if (exportBtn) exportBtn.addEventListener('click', exportControlExcelRW);
+}
+function toggleCalMonthRW(taskId, m){
+  const defs = periodDefs(); const task = defs.find(t => t.id === taskId); if (!task) return;
+  if (!task.period || task.period.type === 'manual') task.period = { type:'times', months: [] };
+  else if (task.period.type !== 'times') return;
+  const months = new Set(task.period.months || []);
+  const iba_a_quedar_vacia = months.has(m) && months.size === 1;
+  if (iba_a_quedar_vacia && !confirm(`"${task.label}" se va a quedar SIN ningún mes programado (pasa a "Sin período"). ¿Seguro?`)) return;
+  if (months.has(m)) months.delete(m); else months.add(m);
+  task.period.months = [...months].sort((a,b) => a-b);
+  if (!task.period.months.length) task.period = { type:'manual' };
+  savePeriodDefs(defs);
+  renderPeriodCalendarPanelRW();
+}
+function renderControlTableHtmlRW(){
+  const aptTasks = periodDefs().filter(t => t.cat === 'limpieza' && t.scope === 'apto');
+  const apts = [...ALL_HABS].sort(cmpHab);
+  let html = '<h3 style="margin:28px 0 10px;border-top:1px solid var(--line);padding-top:18px;font-size:15px">Control por apartamento — última vez que se hizo</h3>';
+  html += '<div style="color:var(--soft);font-size:13px;margin-bottom:12px">Para llevar registro de cuándo se hizo cada tarea en cada apartamento.</div>';
+  html += '<button class="fdBtn" id="btnExportControlRW" style="margin-bottom:12px">⬇ Exportar a Excel</button>';
+  if (!aptTasks.length){
+    return html + '<div class="none" style="display:block">Todavía no hay tareas de limpieza de fondo configuradas.</div>';
+  }
+  html += '<div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;font-size:12px">';
+  html += '<tr><th style="text-align:left;padding:6px 8px;border-bottom:1.5px solid var(--line);position:sticky;left:0;background:var(--card)">Apto</th>'
+    + aptTasks.map(t => `<th style="padding:6px 6px;border-bottom:1.5px solid var(--line);color:var(--soft);font-weight:600;white-space:nowrap">${esc(t.label)}</th>`).join('') + '</tr>';
+  for (const apt of apts){
+    html += `<tr><td style="padding:6px 8px;border-bottom:1px solid var(--line);font-weight:700;font-family:'IBM Plex Mono',monospace;position:sticky;left:0;background:#fff">${esc(apt)}</td>`;
+    for (const t of aptTasks){
+      const d = periodEstado()[t.id] && periodEstado()[t.id][apt];
+      html += `<td style="text-align:center;padding:6px 6px;border-bottom:1px solid var(--line);white-space:nowrap;${d?'color:#128a4a;font-weight:700':'color:#c9c1af'}">${d ? esc(d.split('-').reverse().join('/')) : '—'}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</table></div>';
+  return html;
+}
+function exportControlExcelRW(){
+  try{
+    const aptTasks = periodDefs().filter(t => t.cat === 'limpieza' && t.scope === 'apto');
+    const apts = [...ALL_HABS].sort(cmpHab);
+    const header = ['Apartamento'].concat(aptTasks.map(t => t.label));
+    const aoa = [header];
+    for (const apt of apts){
+      const row = [apt];
+      for (const t of aptTasks){
+        const d = periodEstado()[t.id] && periodEstado()[t.id][apt];
+        row.push(d || '');
+      }
+      aoa.push(row);
+    }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Control');
+    const d = new Date();
+    XLSX.writeFile(wb, `Control_Limpieza_fondo_${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}.xlsx`);
+  }catch(e){ alert('No pude exportar: ' + e.message); }
+}
+let fondoSub = 'tareas';
+function renderFondoTab(){
+  const box = $('fondoWrap'); if (!box) return;
+  box.innerHTML = `<div style="display:flex;gap:8px;margin-bottom:16px">
+      <button class="fdSubtab${fondoSub==='tareas'?' on':''}" id="fdSubTareas">Tareas</button>
+      <button class="fdSubtab${fondoSub==='cal'?' on':''}" id="fdSubCal">Calendario</button>
+    </div>
+    <div id="fondoTareasBody" style="display:${fondoSub==='tareas'?'':'none'}"></div>
+    <div id="fondoCalBody" style="display:${fondoSub==='cal'?'':'none'}"></div>`;
+  $('fdSubTareas').addEventListener('click', () => { fondoSub = 'tareas'; renderFondoTab(); });
+  $('fdSubCal').addEventListener('click', () => { fondoSub = 'cal'; renderFondoTab(); });
+  if (fondoSub === 'tareas') renderPeriodPanelRW();
+  else renderPeriodCalendarPanelRW();
+}
+/* ================= fin Limpieza de fondo ================= */
+
 let repExtraTareas = {};   /* hab -> [{id,texto,hecho}] */
 async function repLoadExtraTareas(){
   repExtraTareas = {};
@@ -903,15 +1302,19 @@ function setTab(t){
   $('tabMarcar').classList.toggle('active', t === 'marcar');
   $('tabReparto').classList.toggle('active', t === 'reparto');
   $('tabParte').classList.toggle('active', t === 'parte');
+  $('tabFondo').classList.toggle('active', t === 'fondo');
   $('wrap').style.display = t === 'marcar' ? '' : 'none';
   $('repartoWrap').style.display = t === 'reparto' ? '' : 'none';
   $('parteWrap').style.display = t === 'parte' ? '' : 'none';
+  $('fondoWrap').style.display = t === 'fondo' ? '' : 'none';
   if (t === 'reparto') renderReparto();
   if (t === 'parte') renderParteView();
+  if (t === 'fondo') renderFondoTab();
 }
 $('tabMarcar').addEventListener('click', () => setTab('marcar'));
 $('tabReparto').addEventListener('click', () => setTab('reparto'));
 $('tabParte').addEventListener('click', () => setTab('parte'));
+$('tabFondo').addEventListener('click', () => setTab('fondo'));
 
 /* mantener el reparto y la vista de parte sincronizados cuando se recarga (día / realtime) */
 try{ const _lp = loadParte; loadParte = async function(){ await _lp(); if (activeTab === 'reparto') renderReparto(); if (activeTab === 'parte') renderParteView(); }; }catch(e){}
