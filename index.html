@@ -1081,7 +1081,7 @@ async function renderReparto(){
   }
   await repLoadEmp(); await repLoadAsig(); await repLoadExtraLogs(); await repLoadExtraTareas(); await repLoadDiarias();
   const tasks = repTasks();
-  const diariaTasks = repDiarias.filter(d => !d.por_apto).map(d => ({ kind:'diaria', base:String(d.id), hab:d.texto }));
+  const diariaTasks = [];   /* las tareas ahora se programan solo en Fondo > Tareas */
   const optsFor = a => '<option value="">Sin asignar</option>' + repEmp.map(e => `<option value="${esc(e.nombre)}"${a === e.nombre ? ' selected' : ''}>${esc(e.nombre)}</option>`).join('');
   const optsForDaily = a => '<option value="">Sin asignar</option>'
     + `<option value="__TODAS__"${a === '__TODAS__' ? ' selected' : ''}>Todas</option>`
@@ -1129,7 +1129,7 @@ async function renderReparto(){
         <div class="rep-row">
           <select data-tk="${esc(repKey(t))}">${optsFor(a)}</select>
         </div>
-        ${t.kind === 'piso' ? diariaAptoChecklist(t.hab) + extraChecklist(t.hab) : ''}
+        ${t.kind === 'piso' ? extraChecklist(t.hab) : ''}
         </div>`;
     });
   });
@@ -1183,10 +1183,7 @@ async function renderReparto(){
     `<div class="rsummary">${hechas} declaradas · ${confirmadas} confirmadas · de ${tasks.length + diariaTasks.length}</div>`
     + `<div class="rep-emp"><div style="font-weight:700">Empleadas</div><div class="chips" id="repEmpChips">${chips}</div>`
     + `<div class="addemp"><input id="repEmpName" placeholder="Nombre de la empleada"><button id="repEmpAdd">Agregar</button></div></div>`
-    + `<div class="rep-emp"><div style="font-weight:700">Tareas diarias (se repiten todos los días)</div><div class="chips" id="repDiariaChips">${diariaChips}</div>`
-    + `<div class="addemp"><input id="repDiariaTxt" placeholder="ej: regar plantas, sacar basura..."><button id="repDiariaAdd">Agregar</button></div>`
-    + `<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--soft);margin-top:6px"><input type="checkbox" id="repDiariaPorApto"> Pedirles que anoten algo en CADA apartamento (ej: color del piso del baño), en vez de una tarea única</label></div>`
-    + diariaHtml + listHtml + extraLogHtml;
+    + listHtml + extraLogHtml;
   box.querySelectorAll('select[data-tk]').forEach(s => s.addEventListener('change', () => repSetAsig(s.dataset.tk, s.value)));
   box.querySelectorAll('.toPorApto').forEach(a => a.addEventListener('click', async ev => {
     ev.preventDefault();
