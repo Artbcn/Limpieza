@@ -516,7 +516,20 @@ function subscribe(){
     sb.channel('cierre_parte').on('postgres_changes', { event: '*', schema: 'public', table: 'limp_parte' }, payload => {
       const row = payload.new || payload.old || {};
       if (row.fecha !== curISO) return;
+      if (Date.now() < ignoreParteHasta) return;   /* lo cambiamos nosotros recién */
       if (activeTab === 'parte') loadParte(); else $('syncBanner').style.display = 'block';
+    }).subscribe(status => { if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setTimeout(subscribe, 3000); });
+  }catch(e){}
+  try{
+    sb.channel('cierre_kv').on('postgres_changes', { event: '*', schema: 'public', table: 'limp_kv' }, payload => {
+      const row = payload.new || payload.old || {};
+      if (row.src === SB_TAB || !kvPermitida(row.k)) return;
+      kvHydrate(true).then(() => {
+        const a = document.activeElement;
+        if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT')) return;   /* no cortar si está escribiendo */
+        if (activeTab === 'fondo') renderFondoTab();
+        else if (activeTab === 'reparto') renderReparto();
+      });
     }).subscribe(status => { if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setTimeout(subscribe, 3000); });
   }catch(e){}
   try{
@@ -675,7 +688,27 @@ const sugChips = (hab) => {
 /* ================= Limpieza de fondo: CREAR y PROGRAMAR tareas (agregado) =================
    Lee y ESCRIBE las mismas claves de localStorage que usa la app de Andrés (recepcion), para que
    lo que ella cree/edite acá se vea allá y viceversa (comparten origen artbcn.github.io). */
-function lsSet(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+/* Las tareas de fondo y su programación se comparten entre computadoras/celus por la tabla limp_kv
+   (igual que hace la app de administración). Solo se sincronizan estas claves. */
+const KV_KEYS = ['art-period-defs', 'art-period-deleted-defaults', 'art-period-estado'];
+const kvPermitida = k => KV_KEYS.includes(k) || String(k).startsWith('art-fondosel-');
+function lsSet(k, v){
+  try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){}
+  if (sb && kvPermitida(k)) sb.from('limp_kv').upsert({ k, v, src: SB_TAB, updated_at: new Date().toISOString() }).then(() => {}, () => {});
+}
+let kvLastHydrate = 0;
+async function kvHydrate(force){
+  if (!sb) return true;
+  if (!force && Date.now() - kvLastHydrate < 15000) return true;
+  try{
+    const a = await sb.from('limp_kv').select('k,v').in('k', KV_KEYS);
+    const b = await sb.from('limp_kv').select('k,v').like('k', 'art-fondosel-%');
+    if (a.error || b.error) return false;
+    for (const row of [...(a.data || []), ...(b.data || [])]){ try{ localStorage.setItem(row.k, JSON.stringify(row.v)); }catch(e){} }
+    kvLastHydrate = Date.now();
+    return true;
+  }catch(e){ return false; }
+}
 const fmtShort = d => `${pad(d.getDate())}/${pad(d.getMonth()+1)}`;
 const MESES_C = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 function normDesc(s){ return String(s || '').toLowerCase().trim().replace(/\s+/g, ' '); }
@@ -832,6 +865,101 @@ function periodEditorHtml(task){
       hasta ${daySelect('pe-dr',task.id,'d2',dr.d2)} ${monthSelect2('pe-dr',task.id,'m2',dr.m2)}
     </span>`;
 }
+/* ---- apartamentos con ventana / vacíos para asignarles cada tarea de fondo (igual que en la app de administración) ---- */
+function periodIsDone(task, win, target){
+  const est = periodEstado(); const d = est[task.id] && est[task.id][target];
+  if (!d) return false;
+  if (task.period && task.period.type === 'rolling'){
+    const marked = fromISO(d);
+    const next = new Date(marked.getFullYear(), marked.getMonth() + (task.period.months || 1), marked.getDate());
+    return new Date() < next;
+  }
+  if (!win) return true;
+  const coveredWin = periodCurrentWindow(task, fromISO(d));
+  if (!coveredWin) return false;
+  return new Date() <= coveredWin.end;
+}
+function pendingCheckoutFondos(day){
+  const out = [];
+  for (const task of periodDefs()){
+    if (task.cat !== 'limpieza' || task.scope !== 'apto') continue;
+    if (task.period && task.period.type === 'rolling'){
+      const mv = task.period.mesesValidos;
+      if (mv && mv.length && !mv.includes(day.getMonth() + 1)) continue;
+      out.push({ task, occ: { key: task.id + '-rolling', start: day, end: day } }); continue;
+    }
+    const win = periodCurrentWindow(task, day);
+    if (win && day >= win.start && day <= win.end) out.push({ task, occ: win });
+  }
+  return out;
+}
+const fondoSelKeyRW = () => 'art-fondosel-' + curISO;
+const fondoSelRW = () => lsGet(fondoSelKeyRW(), {});
+/* aptos de este día que SALEN: ventana (sale y entra otro) o vacío (sale y queda libre) */
+function aptosDeSalidaRW(){
+  return ((parte && parte.pisos) || []).filter(p => p.obs === 'sucia')
+    .map(p => ({ hab: p.hab, huesped: p.huesped, tipo: p.tipo === 'llegada' ? 'ventana' : 'vacio' }))
+    .sort((a, b) => String(a.hab).localeCompare(String(b.hab), undefined, { numeric:true }));
+}
+let ignoreParteHasta = 0;   /* para no avisarnos de un cambio que hicimos nosotros */
+async function publicarFondosRW(){
+  if (!sb || !parte) return;
+  const pf = pendingCheckoutFondos(fromISO(curISO)), sel = fondoSelRW();
+  const fondos = [];
+  for (const a of aptosDeSalidaRW()){
+    const acciones = pf.filter(({ task, occ }) => !periodIsDone(task, occ, a.hab) && !!(sel[a.hab] && sel[a.hab].includes(task.id)))
+      .map(({ task, occ }) => ({ key: occ.key, label: (task.checkoutLabel || task.label) }));
+    if (acciones.length) fondos.push({ hab: a.hab, huesped: a.huesped, acciones });
+  }
+  parte.fondos = fondos;
+  ignoreParteHasta = Date.now() + 4000;
+  try{
+    /* partimos de lo último publicado (por si Andrés lo actualizó) y solo cambiamos las limpiezas de fondo */
+    const r = await sb.from('limp_parte').select('data').eq('fecha', curISO).maybeSingle();
+    const base = (r.data && r.data.data) || parte;
+    await sb.from('limp_parte').upsert({ fecha: curISO, data: Object.assign({}, base, { fondos, generatedAt: Date.now() }), updated_at: new Date().toISOString() });
+  }catch(e){}
+}
+function renderTrackerRW(task){
+  const box = document.getElementById('ptrack-' + task.id); if (!box) return;
+  const nota = t => `<div style="font-size:12.5px;color:var(--soft);font-style:italic">${t}</div>`;
+  const day = fromISO(curISO);
+  if (!parte || !(parte.pisos || []).length){ box.innerHTML = nota('Todavía no hay parte cargado para este día: cuando lo generen, acá aparecen los aptos que salen.'); return; }
+  const p = task.period || { type:'manual' };
+  if (p.type === 'manual'){ box.innerHTML = nota('Sin período: elegí arriba cuándo toca (mes, rango o cada N meses) para poder asignarla a los aptos.'); return; }
+  const pf = pendingCheckoutFondos(day).find(x => x.task.id === task.id);
+  if (!pf){
+    const win = periodCurrentWindow(task, day);
+    box.innerHTML = nota(win && day < win.start ? `No vigente todavía — próximo período desde ${fmtShort(win.start)}.` : 'No vigente este mes.');
+    return;
+  }
+  const targets = aptosDeSalidaRW();
+  if (!targets.length){ box.innerHTML = nota('Ningún apartamento sale este día.'); return; }
+  const sel = fondoSelRW();
+  const tag = tipo => tipo === 'ventana'
+    ? '<span style="font-size:10px;font-weight:800;padding:1px 6px;border-radius:8px;background:#fdf0d9;color:#9a6a0a;margin-left:4px">VENTANA</span>'
+    : '<span style="font-size:10px;font-weight:800;padding:1px 6px;border-radius:8px;background:#e3f4ea;color:#1E8C4E;margin-left:4px">VACÍO</span>';
+  let pend = 0;
+  const chips = targets.map(({ hab, tipo }) => {
+    const hechoCierre = !!(cierreMap['fondo|' + hab + '\u00a7' + (task.checkoutLabel || task.label)] || {}).hecho;
+    const done = hechoCierre || periodIsDone(task, pf.occ, hab);
+    if (done) return `<span style="display:inline-flex;align-items:center;border:1px solid #bfe6cd;background:#e7f5ec;color:#128a4a;border-radius:10px;padding:7px 12px;margin:3px;font-size:13px;font-weight:700">✓ ${esc(hab)}${tag(tipo)} (hecho)</span>`;
+    const on = !!(sel[hab] && sel[hab].includes(task.id));
+    if (!on) pend++;
+    return on
+      ? `<button class="p-apto-chip" data-id="${esc(task.id)}" data-hab="${esc(hab)}" style="border:1px solid #bfe6cd;background:#e7f5ec;color:#128a4a;border-radius:10px;padding:7px 12px;margin:3px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">✓ ${esc(hab)}${tag(tipo)} · en el parte (tocá para sacar)</button>`
+      : `<button class="p-apto-chip" data-id="${esc(task.id)}" data-hab="${esc(hab)}" style="border:1px solid #e4dfd4;background:#f4f1ea;color:#8a7f66;border-radius:10px;padding:7px 12px;margin:3px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">${esc(hab)}${tag(tipo)} · poner en el parte</button>`;
+  }).join('');
+  box.innerHTML = `<div style="font-size:12px;color:var(--soft);margin-bottom:4px">${pend} sin agregar de ${targets.length} apto${targets.length === 1 ? '' : 's'} que salen este día (ventana = sale y entra otro · vacío = sale y queda libre):</div><div style="display:flex;flex-wrap:wrap">${chips}</div>`;
+  box.querySelectorAll('.p-apto-chip').forEach(btn => btn.addEventListener('click', async () => {
+    btn.disabled = true; btn.style.opacity = '.5';
+    const s = fondoSelRW(); const h = btn.dataset.hab; s[h] = s[h] || [];
+    const i = s[h].indexOf(task.id); if (i >= 0) s[h].splice(i, 1); else s[h].push(task.id);
+    lsSet(fondoSelKeyRW(), s);
+    await publicarFondosRW();
+    periodDefs().filter(t => t.cat === 'limpieza').forEach(renderTrackerRW);
+  }));
+}
 function renderPeriodPanelRW(){
   const box = document.getElementById('fondoTareasBody'); if (!box) return;
   const defs = periodDefs().filter(t => t.cat === 'limpieza');
@@ -846,11 +974,13 @@ function renderPeriodPanelRW(){
       <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">${periodEditorHtml(task)}
         <span style="color:var(--soft);font-size:12.5px">${win ? '· vigente hasta ' + fmtShort(win.end) : ''}</span>
       </div>
+      <div id="ptrack-${esc(task.id)}" style="margin-top:10px"></div>
     </div>`;
   }
   if (!defs.length) html += '<div class="none" style="display:block">Sin tareas todavía.</div>';
   box.innerHTML = html;
   wirePeriodPanelRW();
+  defs.forEach(renderTrackerRW);
 }
 function periodAddTaskRW(){
   const defs = periodDefs();
@@ -1038,8 +1168,12 @@ function exportControlExcelRW(){
   }catch(e){ alert('No pude exportar: ' + e.message); }
 }
 let fondoSub = 'tareas';
-function renderFondoTab(){
+async function renderFondoTab(){
   const box = $('fondoWrap'); if (!box) return;
+  /* antes de editar, traemos lo compartido: si no, podríamos pisar la programación que ya armaron en la otra computadora */
+  box.innerHTML = '<div class="none">Cargando…</div>';
+  const ok = await kvHydrate(true);
+  if (!ok){ box.innerHTML = '<div class="none">No pude conectar para traer las tareas compartidas. Revisá la conexión y volvé a entrar en Fondo (así no se pisa lo que ya está programado).</div>'; return; }
   box.innerHTML = `<div style="display:flex;gap:8px;margin-bottom:16px">
       <button class="fdSubtab${fondoSub==='tareas'?' on':''}" id="fdSubTareas">Tareas</button>
       <button class="fdSubtab${fondoSub==='cal'?' on':''}" id="fdSubCal">Calendario</button>
@@ -1079,6 +1213,7 @@ async function renderReparto(){
     renderReparto._retry = setTimeout(renderReparto, 1500);
     return;
   }
+  await kvHydrate();
   await repLoadEmp(); await repLoadAsig(); await repLoadExtraLogs(); await repLoadExtraTareas(); await repLoadDiarias();
   const tasks = repTasks();
   const diariaTasks = [];   /* las tareas ahora se programan solo en Fondo > Tareas */
