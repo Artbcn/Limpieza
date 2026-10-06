@@ -95,6 +95,7 @@
   @media (max-width:700px){ .piv-fc{ grid-template-columns:repeat(4,1fr) } .pivTbl{ display:block; overflow-x:auto; white-space:nowrap } }
   .pHeadline{ font-weight:800; font-size:15px; margin-bottom:12px; display:flex; align-items:baseline; gap:8px }
   .pHeadline .n{ color:var(--soft); font-weight:600; font-size:13px }
+  button{ touch-action:manipulation }
   .doneBtn{ border:none; border-radius:12px; padding:12px 16px; font-weight:800; font-size:15px; cursor:pointer; white-space:nowrap; min-width:104px }
   .doneBtn.off{ background:#eee7d7; color:#8a7f66 }
   .doneBtn.on{ background:var(--arr); color:#fff }
@@ -265,26 +266,40 @@ let parte = null;
 let cierreMap = {};   /* kind|hab -> row */
 
 /* ====== datos ====== */
+let loadSeq = 0;             /* para descartar respuestas viejas si se pisan dos cargas */
+const pendingWrites = {};    /* kind|hab -> cantidad de guardados en curso (lo que tocaste y todavía no llegó al servidor) */
+const writeChains = {};      /* un guardado por vez y por casillero, en orden */
 async function loadParte(){
-  parte = null; cierreMap = {};
-  if (!sb){ render(); return; }
+  const seq = ++loadSeq;
+  if (!sb){ parte = null; cierreMap = {}; render(); return; }
+  let newParte = null; const newMap = {};
   try{
     const r = await sb.from('limp_parte').select('data').eq('fecha', curISO).maybeSingle();
-    parte = (r.data && r.data.data) || null;
-  }catch(e){ parte = null; }
+    newParte = (r.data && r.data.data) || null;
+  }catch(e){ newParte = null; }
   try{
     const r = await sb.from('limp_cierre').select('*').eq('fecha', curISO);
-    for (const c of (r.data || [])) cierreMap[c.kind + '|' + c.hab] = c;
+    for (const c of (r.data || [])) newMap[c.kind + '|' + c.hab] = c;
   }catch(e){}
+  if (seq !== loadSeq) return;   /* ya hay una carga más nueva en camino */
+  /* lo que acabás de tocar y todavía se está guardando manda sobre lo que devuelve el servidor */
+  for (const k of Object.keys(pendingWrites)) if (cierreMap[k]) newMap[k] = cierreMap[k];
+  parte = newParte; cierreMap = newMap;
   render();
 }
 
-async function setDone(kind, hab, hecho){
+/* Marcar/desmarcar: se ve AL INSTANTE (cierreMap local) y el guardado va por detrás, en orden.
+   Así tocar rápido varias veces no se pisa ni "se vuelve loco" esperando al servidor. */
+function setDone(kind, hab, hecho){
   const key = kind + '|' + hab;
   const prev = cierreMap[key] || {};
-  const row = { id: curISO + '|' + kind + '|' + hab, fecha: curISO, kind, hab, hecho, declarado: prev.declarado||false, declarado_at: prev.declarado_at||null, sup: prev.sup||false, nota: prev.nota || '', src: SB_TAB, updated_at: new Date().toISOString() };
-  cierreMap[key] = row;
-  if (sb){ try{ await sb.from('limp_cierre').upsert(row); }catch(e){} }
+  cierreMap[key] = { id: curISO + '|' + kind + '|' + hab, fecha: curISO, kind, hab, hecho, declarado: prev.declarado||false, declarado_at: prev.declarado_at||null, sup: prev.sup||false, nota: prev.nota || '', src: SB_TAB, updated_at: new Date().toISOString() };
+  pendingWrites[key] = (pendingWrites[key] || 0) + 1;
+  writeChains[key] = (writeChains[key] || Promise.resolve()).then(async () => {
+    const row = cierreMap[key];   /* siempre el último estado que dejaste */
+    if (row && sb){ try{ await sb.from('limp_cierre').upsert(row); }catch(e){} }
+  }).then(() => { pendingWrites[key]--; if (pendingWrites[key] <= 0) delete pendingWrites[key]; });
+  return writeChains[key];
 }
 async function setNota(kind, hab, nota){
   const key = kind + '|' + hab;
@@ -354,10 +369,10 @@ function fondoCard(it){
   return `<div class="item"><div class="top" style="margin-bottom:6px"><span class="hab">${esc(it.hab)}</span><span class="meta"><div class="who">${it.huesped?esc(it.huesped):''} <span class="tag rep">fondo</span></div></span></div><div style="display:flex;flex-wrap:wrap">${chips}</div></div>`;
 }
 function wireFondoChips(){
-  document.querySelectorAll('.fondo-chip').forEach(btn => btn.addEventListener('click', async () => {
+  document.querySelectorAll('.fondo-chip').forEach(btn => btn.addEventListener('click', () => {
     const base = btn.dataset.base, label = btn.dataset.label;
     const nowDone = !(cierreMap['fondo|'+base] && cierreMap['fondo|'+base].hecho);
-    await setDone('fondo', base, nowDone);
+    setDone('fondo', base, nowDone);
     btn.style.background = nowDone ? '#e7f5ec' : '#f4f1ea';
     btn.style.borderColor = nowDone ? '#bfe6cd' : '#e4dfd4';
     btn.style.color = nowDone ? '#128a4a' : '#8a7f66';
@@ -369,9 +384,10 @@ function wireButtons(){
   document.querySelectorAll('.brow').forEach(el => {
     const kind = el.dataset.k, hab = el.dataset.h;
     const btn = el.querySelector('.apbtn');
-    btn.addEventListener('click', async () => {
-      const nowDone = !btn.classList.contains('on');
-      await setDone(kind, hab, nowDone);
+    btn.addEventListener('click', () => {
+      const c0 = cierreMap[kind + '|' + hab];
+      const nowDone = !(c0 && c0.hecho);
+      setDone(kind, hab, nowDone);
       btn.className = 'apbtn ' + (nowDone?'on':'off');
       btn.textContent = (nowDone?'\u2713 ':'') + hab;
       refreshSummary();
@@ -438,9 +454,10 @@ function wireItems(){
   document.querySelectorAll('.item[data-k]').forEach(el => {
     const kind = el.dataset.k, hab = el.dataset.h;
     const btn = el.querySelector('.doneBtn');
-    if (btn) btn.addEventListener('click', async () => {
-      const nowDone = !el.classList.contains('done');
-      await setDone(kind, hab, nowDone);
+    if (btn) btn.addEventListener('click', () => {
+      const c0 = cierreMap[kind + '|' + hab];
+      const nowDone = !(c0 && c0.hecho);
+      setDone(kind, hab, nowDone);
       el.classList.toggle('done', nowDone);
       btn.className = 'doneBtn ' + (nowDone ? 'on' : 'off');
       btn.textContent = nowDone ? '✓ Hecho' : 'Marcar';
