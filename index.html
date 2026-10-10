@@ -423,11 +423,27 @@ function render(){
   html += pextras.length ? pextras.map(it => itemRow('pextra', it)).join('') : '<div class="none">Sin tareas extra.</div>';
   html += extraSection();
   html += summary(pisos, toallas, clientes, fondos, pextras);
+  html += previsionHtml(parte.prevision);
   w.innerHTML = html;
   wireItems();
   wireButtons();
   wireFondoChips();
   wireExtras();
+}
+
+function previsionHtml(prev){
+  if (!prev || !prev.length) return '';
+  const cell = (cls, l, v, x) => `<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:${v?cls:'#cfc9bb'}"><span style="font-size:11px;color:#7b7466">${l}</span><span>${v}${x?'+':''}</span></div>`;
+  const cards = prev.map(d => {
+    const dt = new Date(d.fecha + 'T12:00:00');
+    const lbl = dt.toLocaleDateString('es-ES', { weekday:'short' }) + ' ' + String(dt.getDate()).padStart(2,'0') + '/' + String(dt.getMonth()+1).padStart(2,'0');
+    const cur = d.fecha === curISO;
+    return `<div style="flex:0 0 92px;border:${cur?'2px solid #17313B':'1px solid #e7e2d6'};border-radius:12px;background:#fff;padding:8px 10px">
+      <div style="font-size:12px;font-weight:800;margin-bottom:4px;text-align:center">${lbl}</div>
+      ${cell('#0FA3A3','Toallas',d.t,d.xt)}${cell('#C97F17','Clientes',d.c,d.xc)}${cell('#C0392B','Salidas',d.s)}</div>`;
+  }).join('');
+  return `<h2>Previsión próximos días</h2><div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px">${cards}</div>
+    <div style="font-size:11px;color:#7b7466;margin-top:4px">Toallas · Limpiezas de cliente · Salidas. El + incluye extras agregados a mano.</div>`;
 }
 
 function extraSection(){
