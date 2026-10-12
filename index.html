@@ -1232,7 +1232,7 @@ async function renderReparto(){
   }
   await kvHydrate();
   await repLoadEmp(); await repLoadAsig(); await repLoadExtraLogs(); await repLoadExtraTareas(); await repLoadDiarias();
-  const tasks = repTasks().filter(t => t.kind !== 'pextra');   /* las tareas extra sueltas ya no se reparten acá */
+  const tasks = repTasks();
   const diariaTasks = repDiarias.filter(d => !d.por_apto).map(d => ({ kind:'diaria', base:String(d.id), hab:d.texto, tareas:Array.isArray(d.tareas) ? d.tareas : [] }));   /* zonas comunes (recepción, piscina, escaleras…) */
   const optsFor = a => '<option value="">Sin asignar</option>' + repEmp.map(e => `<option value="${esc(e.nombre)}"${a === e.nombre ? ' selected' : ''}>${esc(e.nombre)}</option>`).join('');
   const optsForDaily = a => '<option value="">Sin asignar</option>'
@@ -1240,7 +1240,7 @@ async function renderReparto(){
     + repEmp.map(e => `<option value="${esc(e.nombre)}"${a === e.nombre ? ' selected' : ''}>${esc(e.nombre)}</option>`).join('');
   const chips = repEmp.map(e => `<span class="chip">${esc(e.nombre)}<span class="x" data-emp="${e.id}">×</span></span>`).join('') || '<span style="color:var(--soft);font-size:14px">Ninguna todavía</span>';
   const diariaChips = repDiarias.map(d => `<span class="chip">${esc(d.texto)}<span class="x" data-diaria="${d.id}">×</span></span>`).join('') || '<span style="color:var(--soft);font-size:14px">Ninguna todavía</span>';
-  const order = ['piso','toalla','cliente','fondo'];
+  const order = ['piso','toalla','cliente','fondo','pextra'];
   const gname = { piso:'Apartamentos', toalla:'Cambio de toallas', cliente:'Limpieza de cliente', fondo:'Limpiezas de fondo', pextra:'Tareas extra' };
   const diariaAptoChecklist = (hab) => {
     const porApto = repDiarias.filter(d => d.por_apto);
