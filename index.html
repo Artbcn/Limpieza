@@ -584,7 +584,7 @@ function repTag(t){
   if (t.kind === 'toalla')  return '<span class="rtag toa">toalla</span>';
   if (t.kind === 'cliente') return '<span class="rtag cli">limpieza cli.</span>';
   if (t.kind === 'fondo')   return '<span class="rtag otro">fondo</span>';
-  if (t.kind === 'diaria')  return '<span class="rtag otro">todos los días</span>';
+  if (t.kind === 'diaria')  return '<span class="rtag otro">zona común</span>';
   return '<span class="rtag otro">extra</span>';
 }
 function repSub(t){
@@ -602,6 +602,7 @@ async function repSetAsig(taskkey, asignada){ if (!sb) return; try{ await sb.fro
 let repDiarias = [];
 async function repLoadDiarias(){ repDiarias = []; if (!sb) return; try{ const r = await sb.from('dist_tareas_diarias').select('*').eq('activa', true).order('orden'); repDiarias = r.data || []; }catch(e){} }
 async function repAddDiaria(texto, porApto){ if (!sb || !texto.trim()) return; try{ await sb.from('dist_tareas_diarias').insert({ texto: texto.trim(), orden: Date.now(), por_apto: !!porApto }); }catch(e){} }
+async function repSetZonaTareas(id, tareas){ if (!sb) return; try{ await sb.from('dist_tareas_diarias').update({ tareas }).eq('id', id); }catch(e){} }
 async function repDelDiaria(id){ if (!sb) return; try{ await sb.from('dist_tareas_diarias').update({ activa:false }).eq('id', id); }catch(e){} }
 async function repToggleDiariaPorApto(id, val){ if (!sb) return; try{ await sb.from('dist_tareas_diarias').update({ por_apto: val }).eq('id', id); }catch(e){} }
 async function repSetSup(kind, base, sup){
@@ -1232,7 +1233,7 @@ async function renderReparto(){
   await kvHydrate();
   await repLoadEmp(); await repLoadAsig(); await repLoadExtraLogs(); await repLoadExtraTareas(); await repLoadDiarias();
   const tasks = repTasks();
-  const diariaTasks = [];   /* las tareas ahora se programan solo en Fondo > Tareas */
+  const diariaTasks = repDiarias.filter(d => !d.por_apto).map(d => ({ kind:'diaria', base:String(d.id), hab:d.texto, tareas:Array.isArray(d.tareas) ? d.tareas : [] }));   /* zonas comunes (recepción, piscina, escaleras…) */
   const optsFor = a => '<option value="">Sin asignar</option>' + repEmp.map(e => `<option value="${esc(e.nombre)}"${a === e.nombre ? ' selected' : ''}>${esc(e.nombre)}</option>`).join('');
   const optsForDaily = a => '<option value="">Sin asignar</option>'
     + `<option value="__TODAS__"${a === '__TODAS__' ? ' selected' : ''}>Todas</option>`
@@ -1284,23 +1285,26 @@ async function renderReparto(){
         </div>`;
     });
   });
-  let diariaHtml = '';
-  if (diariaTasks.length){
-    diariaHtml += `<div class="rgrp">Tareas diarias (${diariaTasks.length})</div>`;
-    diariaTasks.forEach(t => {
-      const c = cierreMap[repKey(t)] || {}, done = !!c.declarado, confirmado = !!c.hecho;
-      if (done) hechas++; if (confirmado) confirmadas++;
-      const a = repAsig[repKey(t)] || '';
-      diariaHtml += `<div class="rep-item ${done ? 'hecho' : ''}">
-        <div class="rtop"><span class="hab">${esc(t.hab)}</span>${repTag(t)}${confirmado ? '<span class="pill hecho">✓ confirmado</span>' : done ? '<span class="pill" style="background:#fdf0d9;color:#a9741a">declarado</span>' : '<span class="pill pend">pendiente</span>'}</div>
-        <div class="rep-row">
-          <select data-tk="${esc(repKey(t))}">${optsForDaily(a)}</select>
-        </div>
-        <div style="margin-top:4px"><a href="#" class="toPorApto" data-id="${esc(t.base)}" style="font-size:12px;color:var(--soft)">Cambiar a "anotar en cada apartamento" en vez de tarea única</a></div>
-        </div>`;
-    });
-  }
-  if (!tasks.length && !diariaTasks.length) listHtml = '<div class="none">No hay parte para este día.</div>';
+  let diariaHtml = `<div class="rgrp">Zonas comunes (${diariaTasks.length})</div>`;
+  diariaTasks.forEach(t => {
+    const c = cierreMap[repKey(t)] || {}, done = !!c.declarado, confirmado = !!c.hecho;
+    if (done) hechas++; if (confirmado) confirmadas++;
+    const a = repAsig[repKey(t)] || '';
+    const tareasHtml = t.tareas.map((x, i) => `<span class="exItem">${esc(x)}<span class="exx zDelTask" data-zid="${esc(t.base)}" data-i="${i}">×</span></span>`).join('');
+    diariaHtml += `<div class="rep-item ${done ? 'hecho' : ''}">
+      <div class="rtop"><span class="hab" style="font-size:15px">${esc(t.hab)}</span>${repTag(t)}${confirmado ? '<span class="pill hecho">✓ confirmado</span>' : done ? '<span class="pill" style="background:#fdf0d9;color:#a9741a">declarado</span>' : '<span class="pill pend">pendiente</span>'}</div>
+      <div class="rep-row"><select data-tk="${esc(repKey(t))}">${optsForDaily(a)}</select></div>
+      <div class="rep-extra">
+        <div class="rep-extra-lbl">Tareas de esta zona${t.tareas.length ? ' (' + t.tareas.length + ')' : ''}</div>
+        ${tareasHtml ? `<div class="exList">${tareasHtml}</div>` : ''}
+        <div class="exAddRow"><input class="exInput zTaskInput" data-zid="${esc(t.base)}" placeholder="agregar tarea a esta zona..."><button class="exAddBtn zAddTask" data-zid="${esc(t.base)}">Agregar</button></div>
+      </div>
+      <div style="margin-top:6px;text-align:right"><a href="#" class="zDel" data-zid="${esc(t.base)}" data-nombre="${esc(t.hab)}" style="font-size:12px;color:var(--soft)">Quitar esta zona</a></div>
+    </div>`;
+  });
+  diariaHtml += `<div class="rep-extra" style="margin:10px 0 18px"><div class="rep-extra-lbl">Agregar una zona nueva</div>
+    <div class="exAddRow"><input class="exInput" id="zNewName" placeholder="nombre de la zona (ej: GARAJE)"><button class="exAddBtn" id="zNewAdd">Agregar zona</button></div></div>`;
+  if (!tasks.length) listHtml = '<div class="none">No hay parte para este día.</div>';
   let extraLogHtml = '';
   if (repExtraLogs.length){
     const deEmpleada = repExtraLogs.filter(e => e.empleada);
@@ -1334,14 +1338,30 @@ async function renderReparto(){
     `<div class="rsummary">${hechas} declaradas · ${confirmadas} confirmadas · de ${tasks.length + diariaTasks.length}</div>`
     + `<div class="rep-emp"><div style="font-weight:700">Empleadas</div><div class="chips" id="repEmpChips">${chips}</div>`
     + `<div class="addemp"><input id="repEmpName" placeholder="Nombre de la empleada"><button id="repEmpAdd">Agregar</button></div></div>`
-    + listHtml + extraLogHtml;
+    + listHtml + diariaHtml + extraLogHtml;
   box.querySelectorAll('select[data-tk]').forEach(s => s.addEventListener('change', () => repSetAsig(s.dataset.tk, s.value)));
-  box.querySelectorAll('.toPorApto').forEach(a => a.addEventListener('click', async ev => {
-    ev.preventDefault();
-    if (!confirm('¿Convertir esta tarea en "anotar en cada apartamento"? Va a dejar de aparecer como tarea única.')) return;
-    await repToggleDiariaPorApto(a.dataset.id, true);
-    renderReparto();
+  const zRefresh = () => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); return renderReparto(); };
+  const zFind = id => repDiarias.find(d => String(d.id) === String(id));
+  const zAddTask = async id => {
+    const inp = box.querySelector('.zTaskInput[data-zid="' + id + '"]'); const txt = (inp && inp.value || '').trim(); if (!txt) return;
+    const z = zFind(id); if (!z) return;
+    await repSetZonaTareas(z.id, (Array.isArray(z.tareas) ? z.tareas : []).concat([txt])); zRefresh();
+  };
+  box.querySelectorAll('.zAddTask').forEach(b => b.addEventListener('click', () => zAddTask(b.dataset.zid)));
+  box.querySelectorAll('.zTaskInput').forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') zAddTask(i.dataset.zid); }));
+  box.querySelectorAll('.zDelTask').forEach(x => x.addEventListener('click', async () => {
+    const z = zFind(x.dataset.zid); if (!z) return;
+    const arr = (Array.isArray(z.tareas) ? z.tareas : []).filter((_, i) => i !== Number(x.dataset.i));
+    await repSetZonaTareas(z.id, arr); zRefresh();
   }));
+  box.querySelectorAll('.zDel').forEach(a => a.addEventListener('click', async ev => {
+    ev.preventDefault();
+    if (!confirm('¿Quitar la zona "' + a.dataset.nombre + '"? Deja de aparecer todos los días.')) return;
+    await repDelDiaria(a.dataset.zid); zRefresh();
+  }));
+  const zAddZone = async () => { const i = $('zNewName'); const n = (i && i.value || '').trim(); if (!n) return; await repAddDiaria(n, false); zRefresh(); };
+  if ($('zNewAdd')) $('zNewAdd').addEventListener('click', zAddZone);
+  if ($('zNewName')) $('zNewName').addEventListener('keydown', e => { if (e.key === 'Enter') zAddZone(); });
   box.querySelectorAll('#repEmpChips .x').forEach(x => x.addEventListener('click', async () => { if (confirm('¿Quitar esta empleada de la lista?')){ await repDelEmp(x.dataset.emp); renderReparto(); } }));
   const add = $('repEmpAdd'); if (add) add.addEventListener('click', async () => { const i = $('repEmpName'), n = (i.value || '').trim(); if (n){ await repAddEmp(n); renderReparto(); } });
   box.querySelectorAll('#repDiariaChips .x').forEach(x => x.addEventListener('click', async () => { if (confirm('¿Quitar esta tarea diaria?')){ await repDelDiaria(x.dataset.diaria); renderReparto(); } }));
