@@ -596,7 +596,7 @@ function repSub(t){
 }
 async function repLoadEmp(){ repEmp = []; if (!sb) return; try{ const r = await sb.from('dist_empleadas').select('*').eq('activa', true).order('orden'); repEmp = r.data || []; }catch(e){} }
 async function repLoadAsig(){ repAsig = {}; if (!sb) return; try{ const r = await sb.from('dist_asig').select('taskkey,asignada').eq('fecha', curISO); (r.data||[]).forEach(x => repAsig[x.taskkey] = x.asignada); }catch(e){} }
-async function repSetAsig(taskkey, asignada){ if (!sb) return; try{ await sb.from('dist_asig').upsert({ id: curISO + '|' + taskkey, fecha: curISO, taskkey, asignada, updated_at: new Date().toISOString() }); }catch(e){} }
+async function repSetAsig(taskkey, asignada){ repAsig[taskkey] = asignada; if (!sb) return; try{ await sb.from('dist_asig').upsert({ id: curISO + '|' + taskkey, fecha: curISO, taskkey, asignada, updated_at: new Date().toISOString() }); }catch(e){} }
 
 /* tareas diarias fijas: se repiten todos los días solas, sin depender del parte del día */
 let repDiarias = [];
@@ -716,10 +716,9 @@ function lsSet(k, v){
 let kvLastHydrate = 0;
 async function kvHydrate(force){
   if (!sb) return true;
-  if (!force && Date.now() - kvLastHydrate < 15000) return true;
+  if (!force && Date.now() - kvLastHydrate < 60000) return true;
   try{
-    const a = await sb.from('limp_kv').select('k,v').in('k', KV_KEYS);
-    const b = await sb.from('limp_kv').select('k,v').like('k', 'art-fondosel-%');
+    const [a, b] = await Promise.all([sb.from('limp_kv').select('k,v').in('k', KV_KEYS), sb.from('limp_kv').select('k,v').like('k', 'art-fondosel-%')]);
     if (a.error || b.error) return false;
     for (const row of [...(a.data || []), ...(b.data || [])]){ try{ localStorage.setItem(row.k, JSON.stringify(row.v)); }catch(e){} }
     kvLastHydrate = Date.now();
@@ -1213,25 +1212,38 @@ async function repLoadExtraTareas(){
     (r.data || []).forEach(x => { (repExtraTareas[x.hab] = repExtraTareas[x.hab] || []).push(x); });
   }catch(e){}
 }
-async function repAddExtraTarea(hab, texto){
+function repAddExtraTarea(hab, texto){
   if (!sb || !texto.trim()) return;
   const id = curISO + '|' + hab + '|' + Date.now().toString(36);
-  try{ await sb.from('dist_extra_tareas').insert({ id, fecha: curISO, hab, texto: texto.trim() }); }catch(e){}
+  (repExtraTareas[hab] = repExtraTareas[hab] || []).push({ id, fecha: curISO, hab, texto: texto.trim(), hecho: false });   /* se ve al instante */
+  sb.from('dist_extra_tareas').insert({ id, fecha: curISO, hab, texto: texto.trim() }).then(() => {}, () => {});
 }
 async function repDelExtraTarea(id){ if (!sb) return; try{ await sb.from('dist_extra_tareas').delete().eq('id', id); }catch(e){} }
 
-async function renderReparto(){
+let repBusy = false, repAgain = false;
+async function renderReparto(opts){
+  /* una sola dibujada a la vez: si llegan varias seguidas, se junta todo en una más */
+  if (repBusy){ repAgain = true; return; }
+  repBusy = true;
+  try{ await renderRepartoInner(opts); }
+  finally{ repBusy = false; if (repAgain){ repAgain = false; renderReparto(); } }
+}
+async function renderRepartoInner(opts){
+  const cached = !!(opts && opts.cached);
   const box = $('repartoWrap'); if (!box) return;
   /* si está escribiendo en un campo de texto de esta pestaña, no la redibujamos ahora
      (se pisaría lo que está tipeando); reintenta solo, apenas termine de escribir. */
   const activo = document.activeElement;
   if (box.contains(activo) && (activo.tagName === 'INPUT' || activo.tagName === 'TEXTAREA')){
     clearTimeout(renderReparto._retry);
-    renderReparto._retry = setTimeout(renderReparto, 1500);
+    renderReparto._retry = setTimeout(() => renderReparto(), 1500);
     return;
   }
-  await kvHydrate();
-  await repLoadEmp(); await repLoadAsig(); await repLoadExtraLogs(); await repLoadExtraTareas(); await repLoadDiarias();
+  if (!cached){
+    await kvHydrate();
+    /* todo en paralelo: antes eran 5 viajes al servidor uno detrás de otro */
+    await Promise.all([repLoadEmp(), repLoadAsig(), repLoadExtraLogs(), repLoadExtraTareas(), repLoadDiarias()]);
+  }
   const tasks = repTasks();
   const diariaTasks = repDiarias.filter(d => !d.por_apto).map(d => ({ kind:'diaria', base:String(d.id), hab:d.texto, tareas:Array.isArray(d.tareas) ? d.tareas : [] }));   /* zonas comunes (recepción, piscina, escaleras…) */
   const optsFor = a => '<option value="">Sin asignar</option>' + repEmp.map(e => `<option value="${esc(e.nombre)}"${a === e.nombre ? ' selected' : ''}>${esc(e.nombre)}</option>`).join('');
@@ -1340,24 +1352,25 @@ async function renderReparto(){
     + `<div class="addemp"><input id="repEmpName" placeholder="Nombre de la empleada"><button id="repEmpAdd">Agregar</button></div></div>`
     + listHtml + diariaHtml + extraLogHtml;
   box.querySelectorAll('select[data-tk]').forEach(s => s.addEventListener('change', () => repSetAsig(s.dataset.tk, s.value)));
-  const zRefresh = () => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); return renderReparto(); };
+  const zRefresh = (cachedRender) => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); return renderReparto(cachedRender ? { cached:true } : undefined); };
   const zFind = id => repDiarias.find(d => String(d.id) === String(id));
   const zAddTask = async id => {
     const inp = box.querySelector('.zTaskInput[data-zid="' + id + '"]'); const txt = (inp && inp.value || '').trim(); if (!txt) return;
     const z = zFind(id); if (!z) return;
-    await repSetZonaTareas(z.id, (Array.isArray(z.tareas) ? z.tareas : []).concat([txt])); zRefresh();
+    z.tareas = (Array.isArray(z.tareas) ? z.tareas : []).concat([txt]);
+    zRefresh(true); repSetZonaTareas(z.id, z.tareas);
   };
   box.querySelectorAll('.zAddTask').forEach(b => b.addEventListener('click', () => zAddTask(b.dataset.zid)));
   box.querySelectorAll('.zTaskInput').forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') zAddTask(i.dataset.zid); }));
   box.querySelectorAll('.zDelTask').forEach(x => x.addEventListener('click', async () => {
     const z = zFind(x.dataset.zid); if (!z) return;
     const arr = (Array.isArray(z.tareas) ? z.tareas : []).filter((_, i) => i !== Number(x.dataset.i));
-    await repSetZonaTareas(z.id, arr); zRefresh();
+    z.tareas = arr; zRefresh(true); repSetZonaTareas(z.id, arr);
   }));
   box.querySelectorAll('.zDel').forEach(a => a.addEventListener('click', async ev => {
     ev.preventDefault();
     if (!confirm('¿Quitar la zona "' + a.dataset.nombre + '"? Deja de aparecer todos los días.')) return;
-    await repDelDiaria(a.dataset.zid); zRefresh();
+    repDiarias = repDiarias.filter(d => String(d.id) !== String(a.dataset.zid)); zRefresh(true); repDelDiaria(a.dataset.zid);
   }));
   const zAddZone = async () => { const i = $('zNewName'); const n = (i && i.value || '').trim(); if (!n) return; await repAddDiaria(n, false); zRefresh(); };
   if ($('zNewAdd')) $('zNewAdd').addEventListener('click', zAddZone);
@@ -1366,12 +1379,15 @@ async function renderReparto(){
   const add = $('repEmpAdd'); if (add) add.addEventListener('click', async () => { const i = $('repEmpName'), n = (i.value || '').trim(); if (n){ await repAddEmp(n); renderReparto(); } });
   box.querySelectorAll('#repDiariaChips .x').forEach(x => x.addEventListener('click', async () => { if (confirm('¿Quitar esta tarea diaria?')){ await repDelDiaria(x.dataset.diaria); renderReparto(); } }));
   const addD = $('repDiariaAdd'); if (addD) addD.addEventListener('click', async () => { const i = $('repDiariaTxt'), n = (i.value || '').trim(), pa = $('repDiariaPorApto'); if (n){ await repAddDiaria(n, pa && pa.checked); renderReparto(); } });
-  box.querySelectorAll('.exSug').forEach(b => b.addEventListener('click', async () => { await repAddExtraTarea(b.dataset.hab, b.dataset.txt); renderReparto(); }));
+  box.querySelectorAll('.exSug').forEach(b => b.addEventListener('click', () => { repAddExtraTarea(b.dataset.hab, b.dataset.txt); renderReparto({ cached:true }); }));
   box.querySelectorAll('.exAddBtn').forEach(b => b.addEventListener('click', async () => {
     const inp = box.querySelector(`.exInput[data-hab="${CSS.escape(b.dataset.hab)}"]`); if (!inp || !inp.value.trim()) return;
-    await repAddExtraTarea(b.dataset.hab, inp.value); renderReparto();
+    repAddExtraTarea(b.dataset.hab, inp.value); if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); renderReparto({ cached:true });
   }));
-  box.querySelectorAll('.exx').forEach(x => x.addEventListener('click', async () => { await repDelExtraTarea(x.dataset.id); renderReparto(); }));
+  box.querySelectorAll('.exx:not(.zDelTask)').forEach(x => x.addEventListener('click', () => {
+    for (const h of Object.keys(repExtraTareas)) repExtraTareas[h] = repExtraTareas[h].filter(e => e.id !== x.dataset.id);
+    renderReparto({ cached:true }); repDelExtraTarea(x.dataset.id);
+  }));
 }
 
 /* ==================== Vista "Parte" en vivo (igual al parte que se comparte) ==================== */
@@ -1396,18 +1412,15 @@ async function refreshForecastCache(){
 }
 setInterval(() => { if (activeTab === 'parte') refreshForecastCache(); }, 45000);
 async function loadForecastDays(){
-  const out = [];
-  for (let k = 0; k <= 7; k++){
-    const iso = toISO(addDays(fromISO(curISO), k));
-    let d = null;
-    try{ const r = await sb.from('limp_parte').select('data').eq('fecha', iso).maybeSingle(); d = (r.data && r.data.data) || null; }catch(e){}
+  const isos = []; for (let k = 0; k <= 7; k++) isos.push(toISO(addDays(fromISO(curISO), k)));
+  const datas = await Promise.all(isos.map(async iso => {
+    try{ const r = await sb.from('limp_parte').select('data').eq('fecha', iso).maybeSingle(); return (r.data && r.data.data) || null; }catch(e){ return null; }
+  }));
+  return isos.map((iso, i) => {
+    const d = datas[i];
     const pisos = (d && d.pisos) || [], toa = (d && d.toallas) || [], cli = (d && d.clientes) || [];
-    out.push({
-      iso, lleg: pisos.filter(p => p.tipo === 'llegada').length, sal: pisos.filter(p => p.tipo !== 'llegada').length,
-      toa: toa.length, cli: cli.length
-    });
-  }
-  return out;
+    return { iso, lleg: pisos.filter(p => p.tipo === 'llegada').length, sal: pisos.filter(p => p.tipo !== 'llegada').length, toa: toa.length, cli: cli.length };
+  });
 }
 async function renderParteView(){
   const box = $('parteWrap'); if (!box) return;
@@ -1503,13 +1516,13 @@ $('tabFondo').addEventListener('click', () => setTab('fondo'));
 
 /* mantener el reparto y la vista de parte sincronizados cuando se recarga (día / realtime) */
 try{ const _lp = loadParte; loadParte = async function(){ await _lp(); if (activeTab === 'reparto') renderReparto(); if (activeTab === 'parte') renderParteView(); }; }catch(e){}
-setInterval(() => { if (activeTab === 'parte') loadParte(); }, 6000);
+setInterval(() => { if (activeTab === 'parte' && !document.hidden) loadParte(); }, 10000);
 setInterval(() => {
   const el = $('pivUpdated'); if (!el || !lastParteRefresh) return;
   const s = Math.round((Date.now() - lastParteRefresh) / 1000);
   el.textContent = s < 3 ? 'actualizado ahora' : 'actualizado hace ' + s + 's';
 }, 1000);
-setInterval(() => { if (activeTab === 'reparto') renderReparto(); }, 8000);
+setInterval(() => { if (activeTab === 'reparto' && !document.hidden) renderReparto(); }, 20000);
 /* ==================== fin Reparto + supervisión ==================== */
 
 loadParte();
