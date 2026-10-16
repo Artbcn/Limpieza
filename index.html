@@ -1336,6 +1336,7 @@ async function renderRepartoInner(opts){
         ${t.coment ? `<div class="rcom">⚠ ${esc(t.coment)}</div>` : ''}
         <div class="rep-row">
           <select data-tk="${esc(repKey(t))}">${optsFor(a)}</select>
+          <button class="repHecho${confirmado ? ' on' : ''}" data-kind="${esc(t.kind)}" data-base="${esc(t.base)}" style="margin-left:8px;border:1px solid var(--line);background:${confirmado ? '#1E8C4E' : '#fff'};color:${confirmado ? '#fff' : 'var(--ink)'};border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;white-space:nowrap">${confirmado ? '✓ Hecho' : 'Marcar hecho'}</button>
         </div>
         ${t.kind === 'piso' ? extraChecklist(t.hab) : ''}
         </div>`;
@@ -1349,7 +1350,7 @@ async function renderRepartoInner(opts){
     const tareasHtml = t.tareas.map((x, i) => `<span class="exItem">${esc(x)}<span class="exx zDelTask" data-zid="${esc(t.base)}" data-i="${i}">×</span></span>`).join('');
     diariaHtml += `<div class="rep-item ${done ? 'hecho' : ''}">
       <div class="rtop"><span class="hab" style="font-size:15px">${esc(t.hab)}</span>${repTag(t)}${confirmado ? '<span class="pill hecho">✓ confirmado</span>' : done ? '<span class="pill" style="background:#fdf0d9;color:#a9741a">declarado</span>' : '<span class="pill pend">pendiente</span>'}</div>
-      <div class="rep-row"><select data-tk="${esc(repKey(t))}">${optsForDaily(a)}</select></div>
+      <div class="rep-row"><select data-tk="${esc(repKey(t))}">${optsForDaily(a)}</select><button class="repHecho${confirmado ? ' on' : ''}" data-kind="${esc(t.kind)}" data-base="${esc(t.base)}" style="margin-left:8px;border:1px solid var(--line);background:${confirmado ? '#1E8C4E' : '#fff'};color:${confirmado ? '#fff' : 'var(--ink)'};border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;white-space:nowrap">${confirmado ? '✓ Hecho' : 'Marcar hecho'}</button></div>
       <div class="rep-extra">
         <div class="rep-extra-lbl">Tareas de esta zona${t.tareas.length ? ' (' + t.tareas.length + ')' : ''}</div>
         ${tareasHtml ? `<div class="exList">${tareasHtml}</div>` : ''}
@@ -1407,6 +1408,12 @@ async function renderRepartoInner(opts){
       });
       renderReparto({ cached:true });
     }
+  }));
+  box.querySelectorAll('.repHecho').forEach(b => b.addEventListener('click', () => {
+    const kind = b.dataset.kind, base = b.dataset.base;
+    const nuevo = !(cierreMap[kind + '|' + base] && cierreMap[kind + '|' + base].hecho);
+    setDone(kind, base, nuevo);          /* se ve al instante; el guardado va por detrás */
+    renderReparto({ cached:true });
   }));
   const zRefresh = (cachedRender) => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); return renderReparto(cachedRender ? { cached:true } : undefined); };
   const zFind = id => repDiarias.find(d => String(d.id) === String(id));
