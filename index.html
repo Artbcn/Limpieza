@@ -819,6 +819,35 @@ function periodDefs(){
   return d;
 }
 function savePeriodDefs(list){ lsSet('art-period-defs', list); }
+/* ===== registro de control: guardado SEGURO (nunca pisa lo que cargó otro dispositivo) ===== */
+function estadoDiff(prev, next){
+  const set = [], del = [];
+  for (const id of Object.keys(next)) for (const apt of Object.keys(next[id] || {})){
+    if (!prev[id] || prev[id][apt] !== next[id][apt]) set.push([id, apt, next[id][apt]]);
+  }
+  for (const id of Object.keys(prev)) for (const apt of Object.keys(prev[id] || {})){
+    if (!next[id] || next[id][apt] === undefined) del.push([id, apt]);
+  }
+  return { set, del };
+}
+function savePeriodEstado(o){
+  const prev = lsGet('art-period-estado', {});
+  lsSet('art-period-estado', o);
+  const diff = estadoDiff(prev, o);
+  if (!diff.set.length && !diff.del.length) return;
+  if (!sb) return;
+  (async () => {
+    try{
+      const { data, error } = await sb.from('limp_kv').select('v').eq('k', 'art-period-estado').maybeSingle();
+      if (error || !data || !data.v) return;
+      const remoto = typeof data.v === 'string' ? JSON.parse(data.v) : data.v;
+      const fusion = JSON.parse(JSON.stringify(remoto));
+      for (const [id, apt, val] of diff.set){ fusion[id] = fusion[id] || {}; fusion[id][apt] = val; }
+      for (const [id, apt] of diff.del){ if (fusion[id]) delete fusion[id][apt]; }
+      if (JSON.stringify(fusion) !== JSON.stringify(lsGet('art-period-estado', {}))) lsSet('art-period-estado', fusion);
+    }catch(e){}
+  })();
+}
 function periodEstado(){ return lsGet('art-period-estado', {}); }
 /* ===== archivo de tareas borradas: borrar una tarea NUNCA borra su historial ===== */
 function periodArchivo(){ return lsGet('art-period-archivo', []) || []; }
