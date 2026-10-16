@@ -1282,6 +1282,14 @@ async function renderRepartoInner(opts){
   }
   const tasks = repTasks();
   const diariaTasks = repDiarias.filter(d => !d.por_apto).map(d => ({ kind:'diaria', base:String(d.id), hab:d.texto, tareas:Array.isArray(d.tareas) ? d.tareas : [] }));   /* zonas comunes (recepción, piscina, escaleras…) */
+  /* lo que es de un apto (fondo, toalla, limpieza de cliente, extra) se asigna solo a quien tiene ese apto */
+  const habAsig = {};
+  tasks.forEach(t => { if (t.kind === 'piso'){ const a = repAsig[repKey(t)]; if (a && a !== '__TODAS__') habAsig[t.hab] = a; } });
+  tasks.forEach(t => {
+    if (t.kind === 'piso') return;
+    const k = repKey(t);
+    if (!repAsig[k] && habAsig[t.hab]){ repAsig[k] = habAsig[t.hab]; repSetAsig(k, habAsig[t.hab]); }
+  });
   const optsFor = a => '<option value="">Sin asignar</option>' + repEmp.map(e => `<option value="${esc(e.nombre)}"${a === e.nombre ? ' selected' : ''}>${esc(e.nombre)}</option>`).join('');
   const optsForDaily = a => '<option value="">Sin asignar</option>'
     + `<option value="__TODAS__"${a === '__TODAS__' ? ' selected' : ''}>Todas</option>`
@@ -1387,7 +1395,19 @@ async function renderRepartoInner(opts){
     + `<div class="rep-emp"><div style="font-weight:700">Empleadas</div><div class="chips" id="repEmpChips">${chips}</div>`
     + `<div class="addemp"><input id="repEmpName" placeholder="Nombre de la empleada"><button id="repEmpAdd">Agregar</button></div></div>`
     + listHtml + diariaHtml + extraLogHtml;
-  box.querySelectorAll('select[data-tk]').forEach(s => s.addEventListener('change', () => repSetAsig(s.dataset.tk, s.value)));
+  box.querySelectorAll('select[data-tk]').forEach(s => s.addEventListener('change', () => {
+    const k = s.dataset.tk, prev = repAsig[k] || '';
+    repSetAsig(k, s.value);
+    if (k.startsWith('piso|')){
+      /* si cambia quién tiene el apto, sus tareas (fondo, toallas…) lo siguen, salvo las que asignaste a mano a otra persona */
+      const hab = k.slice(5);
+      tasks.filter(t => t.kind !== 'piso' && t.hab === hab).forEach(t => {
+        const kk = repKey(t), cur = repAsig[kk] || '';
+        if (!cur || cur === prev) repSetAsig(kk, s.value);
+      });
+      renderReparto({ cached:true });
+    }
+  }));
   const zRefresh = (cachedRender) => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); return renderReparto(cachedRender ? { cached:true } : undefined); };
   const zFind = id => repDiarias.find(d => String(d.id) === String(id));
   const zAddTask = async id => {
