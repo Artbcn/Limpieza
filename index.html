@@ -1162,6 +1162,13 @@ function renderPeriodCalendarPanelRW(){
   }));
   const exportBtn = document.getElementById('btnExportControlRW');
   if (exportBtn) exportBtn.addEventListener('click', exportControlExcelRW);
+  box.querySelectorAll('.ctlDate').forEach(inp => inp.addEventListener('change', () => {
+    const est = periodEstado(); const id = inp.dataset.task, apt = inp.dataset.apt;
+    if (inp.value){ est[id] = est[id] || {}; est[id][apt] = inp.value; }
+    else if (est[id]){ delete est[id][apt]; }
+    lsSet('art-period-estado', est);
+    inp.style.color = inp.value ? '#128a4a' : '#c9c1af'; inp.style.fontWeight = inp.value ? '700' : '400';
+  }));
 }
 function toggleCalMonthRW(taskId, m){
   const defs = periodDefs(); const task = defs.find(t => t.id === taskId); if (!task) return;
@@ -1180,7 +1187,7 @@ function renderControlTableHtmlRW(){
   const aptTasks = periodDefs().filter(t => t.cat === 'limpieza' && t.scope === 'apto');
   const apts = [...ALL_HABS].sort(cmpHab);
   let html = '<h3 style="margin:28px 0 10px;border-top:1px solid var(--line);padding-top:18px;font-size:15px">Control por apartamento — última vez que se hizo</h3>';
-  html += '<div style="color:var(--soft);font-size:13px;margin-bottom:12px">Para llevar registro de cuándo se hizo cada tarea en cada apartamento.</div>';
+  html += '<div style="color:var(--soft);font-size:13px;margin-bottom:12px">Para llevar registro de cuándo se hizo cada tarea en cada apartamento. <b>Tocá una fecha para corregirla</b> (o vaciala para borrarla); el Excel sale con lo que ves.</div>';
   html += '<button class="fdBtn" id="btnExportControlRW" style="margin-bottom:12px">⬇ Exportar a Excel</button>';
   if (!aptTasks.length){
     return html + '<div class="none" style="display:block">Todavía no hay tareas de limpieza de fondo configuradas.</div>';
@@ -1192,7 +1199,7 @@ function renderControlTableHtmlRW(){
     html += `<tr><td style="padding:6px 8px;border-bottom:1px solid var(--line);font-weight:700;font-family:'IBM Plex Mono',monospace;position:sticky;left:0;background:#fff">${esc(apt)}</td>`;
     for (const t of aptTasks){
       const d = periodEstado()[t.id] && periodEstado()[t.id][apt];
-      html += `<td style="text-align:center;padding:6px 6px;border-bottom:1px solid var(--line);white-space:nowrap;${d?'color:#128a4a;font-weight:700':'color:#c9c1af'}">${d ? esc(d.split('-').reverse().join('/')) : '—'}</td>`;
+      html += `<td style="text-align:center;padding:2px 4px;border-bottom:1px solid var(--line);white-space:nowrap"><input type="date" class="ctlDate" data-task="${esc(t.id)}" data-apt="${esc(apt)}" value="${esc(d || '')}" title="Tocá para editar la fecha" style="border:1px solid transparent;border-radius:6px;background:transparent;font:inherit;font-size:12px;padding:3px 2px;width:118px;${d?'color:#128a4a;font-weight:700':'color:#c9c1af'}"></td>`;
     }
     html += '</tr>';
   }
