@@ -1322,25 +1322,45 @@ async function renderRepartoInner(opts){
     </div>`;
   };
   let hechas = 0, confirmadas = 0, listHtml = '';
-  order.forEach(k => {
-    const g = tasks.filter(t => t.kind === k); if (!g.length) return;
-    listHtml += `<div class="rgrp">${gname[k]} (${g.length})</div>`;
-    g.forEach(t => {
-      const c = cierreMap[repKey(t)] || {}, done = !!c.declarado, confirmado = !!c.hecho;
-      if (done) hechas++; if (confirmado) confirmadas++;
-      const a = repAsig[repKey(t)] || '', sb2 = repSub(t);
-      listHtml += `<div class="rep-item ${done ? 'hecho' : ''}">
-        <div class="rtop"><span class="hab">${esc(t.hab)}</span>${repTag(t)}${confirmado ? '<span class="pill hecho">✓ confirmado</span>' : done ? '<span class="pill" style="background:#fdf0d9;color:#a9741a">declarado</span>' : '<span class="pill pend">pendiente</span>'}</div>
-        ${sb2 ? `<div class="rsub">${esc(sb2)}</div>` : ''}
-        ${t.huesped ? `<div class="rsub">${esc(t.huesped)}</div>` : ''}
-        ${t.coment ? `<div class="rcom">⚠ ${esc(t.coment)}</div>` : ''}
-        <div class="rep-row">
-          <select data-tk="${esc(repKey(t))}">${optsFor(a)}</select>
-          <button class="repHecho${confirmado ? ' on' : ''}" data-kind="${esc(t.kind)}" data-base="${esc(t.base)}" style="margin-left:8px;border:1px solid var(--line);background:${confirmado ? '#1E8C4E' : '#fff'};color:${confirmado ? '#fff' : 'var(--ink)'};border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;white-space:nowrap">${confirmado ? '✓ Hecho' : 'Marcar hecho'}</button>
-        </div>
-        ${t.kind === 'piso' ? extraChecklist(t.hab) : ''}
-        </div>`;
-    });
+  /* UNA tarjeta por apartamento: ahí están todas sus tareas (limpieza, toallas, cliente, fondo, extras).
+     Quien tiene el apto tiene todas sus tareas. */
+  const hechoBtn = (kind, base, confirmado) => `<button class="repHecho${confirmado ? ' on' : ''}" data-kind="${esc(kind)}" data-base="${esc(base)}" style="margin-left:8px;border:1px solid var(--line);background:${confirmado ? '#1E8C4E' : '#fff'};color:${confirmado ? '#fff' : 'var(--ink)'};border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;white-space:nowrap">${confirmado ? '✓ Hecho' : 'Marcar hecho'}</button>`;
+  const byHab = {};
+  tasks.forEach(t => { (byHab[t.hab] = byHab[t.hab] || []).push(t); });
+  tasks.forEach(t => { const c = cierreMap[repKey(t)] || {}; if (c.declarado) hechas++; if (c.hecho) confirmadas++; });
+  if (tasks.length) listHtml += `<div class="rgrp">Apartamentos (${Object.keys(byHab).length})</div>`;
+  Object.keys(byHab).sort(cmpHab).forEach(hab => {
+    const items = byHab[hab];
+    const piso = items.find(t => t.kind === 'piso');
+    const hijos = items.filter(t => t.kind !== 'piso');
+    const asig = (piso && repAsig[repKey(piso)]) || (hijos.map(t => repAsig[repKey(t)]).find(Boolean)) || '';
+    const cp = piso ? (cierreMap[repKey(piso)] || {}) : {};
+    const todas = items.every(t => (cierreMap[repKey(t)] || {}).hecho);
+    const pill = c => c.hecho ? '<span class="pill hecho">✓ confirmado</span>' : c.declarado ? '<span class="pill" style="background:#fdf0d9;color:#a9741a">declarado</span>' : '<span class="pill pend">pendiente</span>';
+    const hijosHtml = hijos.map(t => {
+      const c = cierreMap[repKey(t)] || {}, ok = !!c.hecho;
+      const lbl = t.kind === 'toalla' ? 'Cambio de toalla' + (t.hora ? ' · ' + t.hora : '')
+        : t.kind === 'cliente' ? 'Limpieza de cliente' + (t.hora ? ' · ' + t.hora : '')
+        : t.kind === 'fondo' ? (t.acciones || []).map(x => x.label).join(', ') || 'Limpieza de fondo'
+        : (t.desc || 'Tarea extra');
+      const tag = t.kind === 'fondo' ? '<span class="rtag otro">fondo</span>' : t.kind === 'toalla' ? '<span class="rtag toa">toalla</span>' : t.kind === 'cliente' ? '<span class="rtag cli">limpieza cli.</span>' : '<span class="rtag otro">extra</span>';
+      return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0;border-top:1px dashed var(--line)">
+        ${tag}<span style="flex:1;min-width:140px;font-size:13.5px;${ok ? 'text-decoration:line-through;color:var(--soft)' : ''}">${esc(lbl)}</span>
+        ${c.declarado && !ok ? '<span class="pill" style="background:#fdf0d9;color:#a9741a">declarado</span>' : ''}
+        ${hechoBtn(t.kind, t.base, ok)}</div>`;
+    }).join('');
+    listHtml += `<div class="rep-item ${(piso ? cp.declarado || cp.hecho : false) || todas ? 'hecho' : ''}">
+      <div class="rtop"><span class="hab">${esc(hab)}</span>${piso ? repTag(piso) + pill(cp) : ''}</div>
+      ${piso && repSub(piso) ? `<div class="rsub">${esc(repSub(piso))}</div>` : ''}
+      ${(piso && piso.huesped) || (hijos[0] && hijos[0].huesped) ? `<div class="rsub">${esc((piso && piso.huesped) || hijos[0].huesped)}</div>` : ''}
+      ${piso && piso.coment ? `<div class="rcom">⚠ ${esc(piso.coment)}</div>` : ''}
+      <div class="rep-row">
+        <select class="selHab" data-hab="${esc(hab)}">${optsFor(asig)}</select>
+        ${piso ? hechoBtn('piso', piso.base, !!cp.hecho) : ''}
+      </div>
+      ${hijosHtml ? `<div class="rep-extra"><div class="rep-extra-lbl">Otras tareas de este apto (${hijos.length})</div>${hijosHtml}</div>` : ''}
+      ${extraChecklist(hab)}
+    </div>`;
   });
   let diariaHtml = `<div class="rgrp">Zonas comunes (${diariaTasks.length})</div>`;
   diariaTasks.forEach(t => {
@@ -1396,18 +1416,10 @@ async function renderRepartoInner(opts){
     + `<div class="rep-emp"><div style="font-weight:700">Empleadas</div><div class="chips" id="repEmpChips">${chips}</div>`
     + `<div class="addemp"><input id="repEmpName" placeholder="Nombre de la empleada"><button id="repEmpAdd">Agregar</button></div></div>`
     + listHtml + diariaHtml + extraLogHtml;
-  box.querySelectorAll('select[data-tk]').forEach(s => s.addEventListener('change', () => {
-    const k = s.dataset.tk, prev = repAsig[k] || '';
-    repSetAsig(k, s.value);
-    if (k.startsWith('piso|')){
-      /* si cambia quién tiene el apto, sus tareas (fondo, toallas…) lo siguen, salvo las que asignaste a mano a otra persona */
-      const hab = k.slice(5);
-      tasks.filter(t => t.kind !== 'piso' && t.hab === hab).forEach(t => {
-        const kk = repKey(t), cur = repAsig[kk] || '';
-        if (!cur || cur === prev) repSetAsig(kk, s.value);
-      });
-      renderReparto({ cached:true });
-    }
+  box.querySelectorAll('select[data-tk]').forEach(s => s.addEventListener('change', () => repSetAsig(s.dataset.tk, s.value)));
+  /* el desplegable del apartamento asigna TODAS sus tareas a la misma persona */
+  box.querySelectorAll('select.selHab').forEach(s => s.addEventListener('change', () => {
+    (byHab[s.dataset.hab] || []).forEach(t => repSetAsig(repKey(t), s.value));
   }));
   box.querySelectorAll('.repHecho').forEach(b => b.addEventListener('click', () => {
     const kind = b.dataset.kind, base = b.dataset.base;
