@@ -694,7 +694,7 @@ function isFondoSelectedRO(taskId, hab){ const s = fondoSelRO(); return !!(s[hab
 function pendingCheckoutFondosRO(day){
   const out = [];
   for (const task of periodDefsRO()){
-    if (task.cat !== 'limpieza' || task.scope !== 'apto') continue;
+    if (task.cat !== 'limpieza' || task.scope !== 'apto') continue; if (task.inactiva) continue;
     if (task.period && task.period.type === 'rolling'){ out.push(task); continue; }
     const win = periodCurrentWindowRO(task, day);
     if (win && day >= win.start && day <= win.end) out.push(task);
@@ -967,7 +967,7 @@ function periodIsDone(task, win, target){
 function pendingCheckoutFondos(day){
   const out = [];
   for (const task of periodDefs()){
-    if (task.cat !== 'limpieza' || task.scope !== 'apto') continue;
+    if (task.cat !== 'limpieza' || task.scope !== 'apto') continue; if (task.inactiva) continue;
     if (task.period && task.period.type === 'rolling'){
       const mv = task.period.mesesValidos;
       if (mv && mv.length && !mv.includes(day.getMonth() + 1)) continue;
@@ -1008,6 +1008,7 @@ async function publicarFondosRW(){
 function renderTrackerRW(task){
   const box = document.getElementById('ptrack-' + task.id); if (!box) return;
   const nota = t => `<div style="font-size:12.5px;color:var(--soft);font-style:italic">${t}</div>`;
+  if (task.inactiva){ box.innerHTML = nota('\u23f8 Tarea inactiva: tiene su programaci\u00f3n guardada pero no se ofrece ni se cuenta hasta que la actives.'); return; }
   const day = fromISO(curISO);
   if (!parte || !(parte.pisos || []).length){ box.innerHTML = nota('Todavía no hay parte cargado para este día: cuando lo generen, acá aparecen los aptos que salen.'); return; }
   const p = task.period || { type:'manual' };
@@ -1051,13 +1052,14 @@ function renderPeriodPanelRW(){
   let html = `<button class="fdBtn" onclick="periodAddTaskRW()" style="margin-bottom:14px">+ Agregar tarea</button>`;
   for (const task of defs){
     const win = periodCurrentWindow(task, new Date());
-    html += `<div style="background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;margin:8px 0">
+    html += `<div style="background:${task.inactiva?'#f3f1ea':'#fff'};border:1px solid var(--line);border-radius:12px;padding:12px;margin:8px 0;${task.inactiva?'opacity:.75':''}">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <input class="pe-label" data-id="${esc(task.id)}" value="${esc(task.label)}" style="font-weight:700;border:1px solid var(--line);border-radius:8px;padding:6px 8px;flex:1;min-width:160px">
+        <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--soft);cursor:pointer;white-space:nowrap"><input type="checkbox" class="pe-inactiva" data-id="${esc(task.id)}"${task.inactiva?' checked':''}> \u23f8 Inactiva</label>
         <button class="p-del-task" data-id="${esc(task.id)}" style="border:none;background:transparent;color:#c0392b;cursor:pointer">✕</button>
       </div>
       <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">${periodEditorHtml(task)}
-        <span style="color:var(--soft);font-size:12.5px">${win ? '· vigente hasta ' + fmtShort(win.end) + (task.period && task.period.anio ? ' ' + task.period.anio : '') : ((task.period && task.period.anio && task.period.anio < new Date().getFullYear()) ? '· ese año ya pasó' : '')}</span>
+        <span style="color:var(--soft);font-size:12.5px">${task.inactiva ? '· \u23f8 inactiva (no se ofrece)' : win ? '· vigente hasta ' + fmtShort(win.end) + (task.period && task.period.anio ? ' ' + task.period.anio : '') : ((task.period && task.period.anio && task.period.anio < new Date().getFullYear()) ? '· ese año ya pasó' : '')}</span>
       </div>
       <div id="ptrack-${esc(task.id)}" style="margin-top:10px"></div>
     </div>`;
@@ -1120,6 +1122,11 @@ function wirePeriodPanelRW(){
     if (d.label === inp.value) return;
     d.label = inp.value; savePeriodDefs(defs);
   }, 500); }); });
+  box.querySelectorAll('.pe-inactiva').forEach(cb => cb.addEventListener('change', () => {
+    const defs = periodDefs(); const d = defs.find(x => x.id === cb.dataset.id); if (!d) return;
+    if (cb.checked) d.inactiva = true; else delete d.inactiva;
+    savePeriodDefs(defs); renderPeriodPanelRW();
+  }));
   box.querySelectorAll('.pe-veces').forEach(sel => sel.addEventListener('change', () => {
     const defs = periodDefs(); const d = defs.find(x => x.id === sel.dataset.id); if (!d) return;
     if (sel.value === 'manual'){ d.period = { type:'manual' }; }
