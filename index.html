@@ -959,7 +959,7 @@ function periodIsDone(task, win, target){
     const next = new Date(marked.getFullYear(), marked.getMonth() + (task.period.months || 1), marked.getDate());
     return new Date() < next;
   }
-  if (!win) return true;
+  if (!win) return fromISO(String(d).slice(0,10)).getFullYear() === new Date().getFullYear();   /* manual: vale como hecho solo durante el año en que se marcó; el 1/1 vuelve a pendiente (la fecha queda en el historial) */
   const coveredWin = periodCurrentWindow(task, fromISO(d));
   if (!coveredWin) return false;
   return new Date() <= coveredWin.end;
