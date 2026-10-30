@@ -669,7 +669,7 @@ function periodCurrentWindowRO(task, day){
   if (p.type === 'times' && p.months && p.months.length){
     let best = null;
     const diaIni = p.diaIni || 1;
-    for (const yy of [y, y+1]) for (const m of p.months){
+    for (const yy of (p.anio ? [p.anio] : [y, y+1])) for (const m of p.months){
       const ldm = lastDayOfMonth(yy, m);
       const diaFin = Math.min(p.diaFin || 31, ldm);
       const start = new Date(yy, m-1, Math.min(diaIni, ldm)), end = new Date(yy, m-1, diaFin);
@@ -679,7 +679,7 @@ function periodCurrentWindowRO(task, day){
   }
   if (p.type === 'daterange' && p.d1 && p.m1 && p.d2 && p.m2){
     let best = null;
-    for (const yy of [y-1, y, y+1]){
+    for (const yy of (p.anio ? [p.anio] : [y-1, y, y+1])){
       const start = new Date(yy, p.m1-1, p.d1);
       const wraps = (p.m2 < p.m1) || (p.m2 === p.m1 && p.d2 < p.d1);
       const end = new Date(yy + (wraps?1:0), p.m2-1, p.d2);
@@ -880,7 +880,7 @@ function periodCurrentWindow(task, day){
   if (p.type === 'times' && p.months && p.months.length){
     let best = null;
     const diaIni = p.diaIni || 1;
-    for (const yy of [y, y+1]){
+    for (const yy of (p.anio ? [p.anio] : [y, y+1])){
       for (const m of p.months){
         const ldm = lastDayOfMonth(yy, m);
         const diaFin = Math.min(p.diaFin || 31, ldm);
@@ -892,7 +892,7 @@ function periodCurrentWindow(task, day){
   }
   if (p.type === 'daterange' && p.d1 && p.m1 && p.d2 && p.m2){
     let best = null;
-    for (const yy of [y-1, y, y+1]){
+    for (const yy of (p.anio ? [p.anio] : [y-1, y, y+1])){
       const start = new Date(yy, p.m1-1, p.d1);
       const wraps = (p.m2 < p.m1) || (p.m2 === p.m1 && p.d2 < p.d1);
       const end = new Date(yy + (wraps?1:0), p.m2-1, p.d2);
@@ -901,6 +901,11 @@ function periodCurrentWindow(task, day){
     return best;
   }
   return null;
+}
+function anioSelect(id, val){
+  const y0 = new Date().getFullYear();
+  const opts = ['<option value="">todos los años</option>'].concat(Array.from({length:7}, (_,i) => y0 - 1 + i).map(a => `<option value="${a}"${a===val?' selected':''}>${a}</option>`)).join('');
+  return `<span style="display:inline-flex;gap:6px;align-items:center"><span style="font-size:12px;color:var(--ink-soft)">año</span><select class="pe-anio" data-id="${esc(id)}" style="border:1px solid var(--line);border-radius:8px;padding:5px 6px">${opts}</select></span>`;
 }
 function periodEditorHtml(task){
   const p = task.period || { type:'manual' };
@@ -928,6 +933,7 @@ function periodEditorHtml(task){
       <span style="font-size:12px;color:var(--soft)">al día</span>
       ${daySelect('pe-td',task.id,'diaFin',diaFin)}
       <span style="font-size:12px;color:var(--soft)">de cada mes (dejalo en 1 y 31 para todo el mes)</span>
+      ${anioSelect(task.id, isTimes ? p.anio : null)}
     </span>
     <span class="pe-rolling-wrap" style="display:${isRolling?'inline-flex':'none'};gap:6px;align-items:center;flex-wrap:wrap;width:100%">
       <span style="display:inline-flex;gap:6px;align-items:center">cada <input type="number" min="1" class="pe-rolling-n" data-id="${esc(task.id)}" value="${isRolling ? (p.months||1) : 1}" style="width:48px;border:1px solid var(--line);border-radius:8px;padding:5px 6px"> mes(es), contados desde que se marca hecha</span>
@@ -940,6 +946,7 @@ function periodEditorHtml(task){
     <span class="pe-daterange-wrap" style="display:${isDaterange?'inline-flex':'none'};gap:6px;align-items:center;flex-wrap:wrap">
       desde ${daySelect('pe-dr',task.id,'d1',dr.d1)} ${monthSelect2('pe-dr',task.id,'m1',dr.m1)}
       hasta ${daySelect('pe-dr',task.id,'d2',dr.d2)} ${monthSelect2('pe-dr',task.id,'m2',dr.m2)}
+      ${anioSelect(task.id, isDaterange ? p.anio : null)}
     </span>`;
 }
 /* ---- apartamentos con ventana / vacíos para asignarles cada tarea de fondo (igual que en la app de administración) ---- */
@@ -1050,7 +1057,7 @@ function renderPeriodPanelRW(){
         <button class="p-del-task" data-id="${esc(task.id)}" style="border:none;background:transparent;color:#c0392b;cursor:pointer">✕</button>
       </div>
       <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">${periodEditorHtml(task)}
-        <span style="color:var(--soft);font-size:12.5px">${win ? '· vigente hasta ' + fmtShort(win.end) : ''}</span>
+        <span style="color:var(--soft);font-size:12.5px">${win ? '· vigente hasta ' + fmtShort(win.end) + (task.period && task.period.anio ? ' ' + task.period.anio : '') : ((task.period && task.period.anio && task.period.anio < new Date().getFullYear()) ? '· ese año ya pasó' : '')}</span>
       </div>
       <div id="ptrack-${esc(task.id)}" style="margin-top:10px"></div>
     </div>`;
@@ -1124,6 +1131,11 @@ function wirePeriodPanelRW(){
   box.querySelectorAll('.pe-dr').forEach(sel => sel.addEventListener('change', () => {
     const defs = periodDefs(); const d = defs.find(x => x.id === sel.dataset.id); if (!d || !d.period) return;
     d.period[sel.dataset.field] = parseInt(sel.value);
+    savePeriodDefs(defs); renderPeriodPanelRW();
+  }));
+  box.querySelectorAll('.pe-anio').forEach(sel => sel.addEventListener('change', () => {
+    const defs = periodDefs(); const d = defs.find(x => x.id === sel.dataset.id); if (!d || !d.period) return;
+    if (sel.value) d.period.anio = parseInt(sel.value); else delete d.period.anio;
     savePeriodDefs(defs); renderPeriodPanelRW();
   }));
   box.querySelectorAll('.pe-td').forEach(sel => sel.addEventListener('change', () => {
