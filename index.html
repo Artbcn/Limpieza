@@ -283,6 +283,23 @@ async function loadParte(){
     const r = await sb.from('limp_parte').select('data').eq('fecha', curISO).maybeSingle();
     newParte = (r.data && r.data.data) || null;
   }catch(e){ newParte = null; }
+  /* La previsión de cada día queda "congelada" cuando se publicó ese parte. Si Recepción publicó después otro día
+     (con In House o confirmaciones más nuevas), usamos esa previsión más fresca para los días que le tocan. */
+  try{
+    if (newParte){
+      const r2 = await sb.from('limp_parte').select('fecha,data').gte('fecha', curISO).order('updated_at', { ascending:false }).limit(6);
+      let best = null;
+      for (const row of (r2.data || [])){
+        const d = row.data || {}; const g = d.generatedAt || 0;
+        if (d.prevision && d.prevision.length && (!best || g > best.g)) best = { g, prev: d.prevision };
+      }
+      if (best && best.g > (newParte.generatedAt || 0)){
+        const byF = new Map((newParte.prevision || []).map(d => [d.fecha, d]));
+        for (const d of best.prev) if (d.fecha >= curISO) byF.set(d.fecha, d);
+        newParte = Object.assign({}, newParte, { prevision: [...byF.values()].sort((a, b) => a.fecha < b.fecha ? -1 : 1).slice(0, 8) });
+      }
+    }
+  }catch(e){}
   try{
     const r = await sb.from('limp_cierre').select('*').eq('fecha', curISO);
     for (const c of (r.data || [])) newMap[c.kind + '|' + c.hab] = c;
@@ -537,7 +554,7 @@ function subscribe(){
   try{
     sb.channel('cierre_parte').on('postgres_changes', { event: '*', schema: 'public', table: 'limp_parte' }, payload => {
       const row = payload.new || payload.old || {};
-      if (row.fecha !== curISO) return;
+      if (!row.fecha || row.fecha < curISO) return;   /* un parte de días posteriores también trae previsión más fresca */
       if (Date.now() < ignoreParteHasta) return;   /* lo cambiamos nosotros recién */
       if (activeTab === 'parte') loadParte(); else $('syncBanner').style.display = 'block';
     }).subscribe(status => { if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setTimeout(subscribe, 3000); });
