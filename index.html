@@ -1623,10 +1623,24 @@ async function loadForecastDays(){
   const datas = await Promise.all(isos.map(async iso => {
     try{ const r = await sb.from('limp_parte').select('data').eq('fecha', iso).maybeSingle(); return (r.data && r.data.data) || null; }catch(e){ return null; }
   }));
+  /* Recepción publica en cada parte una previsión de 8 días calculada con el In House (la misma que ve ella).
+     Usamos la más fresca; solo si un día no está ahí, caemos en el parte propio de ese día. */
+  let best = null;
+  try{
+    const r2 = await sb.from('limp_parte').select('fecha,data').gte('fecha', curISO).order('updated_at', { ascending:false }).limit(6);
+    for (const row of (r2.data || [])){
+      const dd = row.data || {}; const g = dd.generatedAt || 0;
+      if (dd.prevision && dd.prevision.length && (!best || g > best.g)) best = { g, prev: dd.prevision };
+    }
+  }catch(e){}
+  const pvBy = new Map(best ? best.prev.map(x => [x.fecha, x]) : []);
   return isos.map((iso, i) => {
     const d = datas[i];
     const pisos = (d && d.pisos) || [], toa = (d && d.toallas) || [], cli = (d && d.clientes) || [];
-    return { iso, lleg: pisos.filter(p => p.tipo === 'llegada').length, sal: pisos.filter(p => p.tipo !== 'llegada').length, toa: toa.length, cli: cli.length };
+    const own = { iso, lleg: pisos.filter(p => p.tipo === 'llegada').length, sal: pisos.filter(p => p.tipo !== 'llegada').length, toa: toa.length, cli: cli.length };
+    const pv = pvBy.get(iso);
+    if (!pv) return own;
+    return { iso, toa: pv.t || 0, cli: pv.c || 0, sal: pv.s || 0, lleg: (pv.l != null) ? pv.l : own.lleg };
   });
 }
 async function renderParteView(){
