@@ -687,6 +687,7 @@ function periodCurrentWindowRO(task, day){
     let best = null;
     const diaIni = p.diaIni || 1;
     for (const yy of (p.anio ? [p.anio] : [y, y+1])) for (const m of p.months){
+      if (!(m > 0)) continue;
       const ldm = lastDayOfMonth(yy, m);
       const diaFin = Math.min(p.diaFin || 31, ldm);
       const start = new Date(yy, m-1, Math.min(diaIni, ldm)), end = new Date(yy, m-1, diaFin);
@@ -771,7 +772,7 @@ function showUndoToast(msg, onUndo){
 }
 const VECES_OPCIONES = [1,2,3,4,6,12];
 function monthSelect(id, idx, val){
-  const opts = MESES_C.map((m,i) => `<option value="${i+1}"${(i+1)===val?' selected':''}>${m}</option>`).join('');
+  const opts = `<option value="0"${!val?' selected':''}>— sin mes</option>` + MESES_C.map((m,i) => `<option value="${i+1}"${(i+1)===val?' selected':''}>${m}</option>`).join('');
   return `<select class="pe-m" data-id="${esc(id)}" data-idx="${idx}" style="border:1px solid var(--line);border-radius:8px;padding:5px 6px">${opts}</select>`;
 }
 function daySelect(cls, id, field, val){
@@ -899,6 +900,7 @@ function periodCurrentWindow(task, day){
     const diaIni = p.diaIni || 1;
     for (const yy of (p.anio ? [p.anio] : [y, y+1])){
       for (const m of p.months){
+        if (!(m > 0)) continue;   /* 0 = mes todavía sin definir */
         const ldm = lastDayOfMonth(yy, m);
         const diaFin = Math.min(p.diaFin || 31, ldm);
         const start = new Date(yy, m-1, Math.min(diaIni, ldm)), end = new Date(yy, m-1, diaFin);
@@ -1288,7 +1290,7 @@ function toggleCalMonthRW(taskId, m){
   const defs = periodDefs(); const task = defs.find(t => t.id === taskId); if (!task) return;
   if (!task.period || task.period.type === 'manual') task.period = { type:'times', months: [] };
   else if (task.period.type !== 'times') return;
-  const months = new Set(task.period.months || []);
+  const months = new Set((task.period.months || []).filter(x => x > 0));
   const iba_a_quedar_vacia = months.has(m) && months.size === 1;
   if (iba_a_quedar_vacia && !confirm(`"${task.label}" se va a quedar SIN ningún mes programado (pasa a "Sin período"). ¿Seguro?`)) return;
   if (months.has(m)) months.delete(m); else months.add(m);
