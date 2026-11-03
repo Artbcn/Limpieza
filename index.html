@@ -981,6 +981,9 @@ function periodIsDone(task, win, target){
   if (!win) return fromISO(String(d).slice(0,10)).getFullYear() === new Date().getFullYear();   /* manual: vale como hecho solo durante el año en que se marcó; el 1/1 vuelve a pendiente (la fecha queda en el historial) */
   const coveredWin = periodCurrentWindow(task, fromISO(d));
   if (!coveredWin) return false;
+  /* al empezar un período nuevo todo vuelve a pendiente: solo cuenta como hecho si la fecha cae DENTRO de la ocurrencia actual (la fecha queda guardada en "Última vez") */
+  if (win && win.key && coveredWin.key !== win.key) return false;
+  if (markedDate < coveredWin.start) return false;
   return new Date() <= coveredWin.end;
 }
 function pendingCheckoutFondos(day){
