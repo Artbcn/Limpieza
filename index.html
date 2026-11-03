@@ -931,7 +931,8 @@ function periodEditorHtml(task){
   const isTimes = p.type === 'times';
   const isRolling = p.type === 'rolling';
   const isDaterange = p.type === 'daterange';
-  const isManual = !isTimes && !isRolling && !isDaterange;
+  const isDemanda = p.type === 'demanda';
+  const isManual = !isTimes && !isRolling && !isDaterange && !isDemanda;
   const months = (isTimes && p.months && p.months.length) ? p.months : [1];
   const n = months.length;
   const vecesOpts = VECES_OPCIONES.map(v => `<option value="${v}"${(isTimes && v===n)?' selected':''}>${v} vez${v===1?'':'es'} al año (mes fijo)</option>`).join('');
@@ -941,6 +942,7 @@ function periodEditorHtml(task){
   const diaIni = (isTimes && p.diaIni) || 1, diaFin = (isTimes && p.diaFin) || 31;
   return `<select class="pe-veces" data-id="${esc(task.id)}" style="border:1px solid var(--line);border-radius:8px;padding:6px">
       <option value="manual"${isManual?' selected':''}>Sin período (manual)</option>
+      <option value="demanda"${isDemanda?' selected':''}>A demanda (solo cuando yo la pido)</option>
       ${vecesOpts}
       <option value="rolling"${isRolling?' selected':''}>Cada N meses (desde la última vez)</option>
       <option value="daterange"${isDaterange?' selected':''}>Rango de fechas fijo (día y mes)</option>
@@ -1189,6 +1191,7 @@ function wirePeriodPanelRW(){
   box.querySelectorAll('.pe-veces').forEach(sel => sel.addEventListener('change', () => {
     const defs = periodDefs(); const d = defs.find(x => x.id === sel.dataset.id); if (!d) return;
     if (sel.value === 'manual'){ d.period = { type:'manual' }; }
+    else if (sel.value === 'demanda'){ d.period = { type:'demanda' }; }
     else if (sel.value === 'rolling'){ d.period = { type:'rolling', months: 1 }; }
     else if (sel.value === 'daterange'){ d.period = { type:'daterange', d1:1, m1:1, d2:1, m2:2 }; }
     else { const n = parseInt(sel.value); d.period = { type:'times', months: spreadMonths(n) }; }
@@ -1291,7 +1294,7 @@ function renderPeriodCalendarPanelRW(){
 }
 function toggleCalMonthRW(taskId, m){
   const defs = periodDefs(); const task = defs.find(t => t.id === taskId); if (!task) return;
-  if (!task.period || task.period.type === 'manual') task.period = { type:'times', months: [] };
+  if (!task.period || task.period.type === 'manual' || task.period.type === 'demanda') task.period = { type:'times', months: [] };
   else if (task.period.type !== 'times') return;
   const months = new Set((task.period.months || []).filter(x => x > 0));
   const iba_a_quedar_vacia = months.has(m) && months.size === 1;
