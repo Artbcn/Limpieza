@@ -1556,7 +1556,7 @@ async function renderRepartoInner(opts){
     `<div class="rsummary">${hechas} declaradas · ${confirmadas} confirmadas · de ${tasks.length + diariaTasks.length}</div>`
     + `<div class="rep-emp"><div style="font-weight:700">Empleadas</div><div class="chips" id="repEmpChips">${chips}</div>`
     + `<div class="addemp"><input id="repEmpName" placeholder="Nombre de la empleada"><button id="repEmpAdd">Agregar</button></div></div>`
-    + listHtml + diariaHtml + extraLogHtml;
+    + (activeTab === 'parte' ? '' : listHtml) + diariaHtml + extraLogHtml;   /* en Parte la lista de apartamentos no va: la asignación ya está en la tabla del parte */
   box.querySelectorAll('select[data-tk]').forEach(s => s.addEventListener('change', () => repSetAsig(s.dataset.tk, s.value)));
   /* el desplegable del apartamento asigna TODAS sus tareas a la misma persona */
   box.querySelectorAll('select.selHab').forEach(s => s.addEventListener('change', () => {
