@@ -1651,8 +1651,21 @@ async function loadForecastDays(){
     return { iso, toa: pv.t || 0, cli: pv.c || 0, sal: pv.s || 0, lleg: (pv.l != null) ? pv.l : own.lleg };
   });
 }
+const EMP_COLORS = [['#e1ebfb','#2c5db0'],['#fbe3f0','#c2418a'],['#e3f4ea','#1E8C4E'],['#fdf0dc','#b46a00'],['#ece2f7','#6b3fa0'],['#e0f4f1','#1f7d72'],['#fdecea','#b3261e']];
+function parteSelHtml(tk, asig, extra){
+  const i = repEmp.findIndex(e => e.nombre === asig);
+  const col = i >= 0 ? EMP_COLORS[i % EMP_COLORS.length] : ['#fff5f4','#b3261e'];
+  const opts = '<option value="">— sin asignar</option>' + repEmp.map(e => `<option value="${esc(e.nombre)}"${asig === e.nombre ? ' selected' : ''}>${esc(e.nombre)}</option>`).join('');
+  return `<select class="pivSel" ${extra || ''} data-tk="${esc(tk)}" style="background:${col[0]};color:${col[1]};border:1.5px solid ${col[1]};border-radius:9px;padding:5px 8px;font-weight:700;font-size:12.5px;max-width:150px">${opts}</select>`;
+}
+let parteBusy = false;
 async function renderParteView(){
   const box = $('parteWrap'); if (!box) return;
+  /* si está eligiendo una camarera, no redibujar (se le cerraría el desplegable) */
+  if (box.contains(document.activeElement) && document.activeElement.tagName === 'SELECT'){ clearTimeout(renderParteView._retry); renderParteView._retry = setTimeout(renderParteView, 1500); return; }
+  if (parteBusy){ renderParteView._again = true; return; } parteBusy = true;
+  try{ await Promise.all([repLoadEmp(), repLoadAsig(), repLoadExtraTareas()]); }catch(e){}
+  parteBusy = false; renderParteView._again = false;
   lastParteRefresh = Date.now();
   const pisos = (parte && parte.pisos) || [];
   const toallas = (parte && parte.toallas) || [];
@@ -1668,6 +1681,7 @@ async function renderParteView(){
     const acciones = (fondoByHab[p.hab] || []).map(a => a.label).join(', ');
     return `<tr class="${c.hecho ? 'phecho' : ''}">
       <td>${esc(p.hab)}</td>
+      <td>${parteSelHtml('piso|' + p.hab, repAsigHab(p.hab), 'data-hab="' + esc(p.hab) + '"')}</td>
       <td><span class="pivTag ${p.tipo === 'llegada' ? 'lleg' : 'sal'}">${esc(p.tipoLbl || p.tipo)}</span></td>
       <td>${esc(p.huesped || '')}</td>
       <td>${esc(p.llegada || '')}</td>
@@ -1681,19 +1695,29 @@ async function renderParteView(){
       <td style="color:#0e7a7a">${esc(acciones)}</td>
       <td style="color:#B5730F">${esc(p.coment || '')}${c.nota ? (p.coment ? ' · ' : '') + esc(c.nota) : ''}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="13" style="text-align:center;color:#B7AF9F;padding:16px">Sin apartamentos para este día.</td></tr>`;
+  }).join('') || `<tr><td colspan="14" style="text-align:center;color:#B7AF9F;padding:16px">Sin apartamentos para este día.</td></tr>`;
   const twHtml = toallas.length ? toallas.map(t => {
     const c = cierreMap['toalla|' + t.hab] || {};
     return `<div class="piv-tw"><b>${esc(t.hab)}</b><span class="hora">${esc(t.hora)} h</span><span style="flex:1">${esc(t.huesped || '')}</span>
       <span style="font-size:11px;font-weight:800;color:${t.avisado ? '#1E8C4E' : '#B7AF9F'}">${t.avisado ? '✓ Confirmado' : 'Sin confirmar'}</span>
+      ${parteSelHtml('toalla|' + t.hab, repAsig['toalla|' + t.hab] || repAsigHab(t.hab))}
       <span class="estado">${c.hecho ? '✓ hecho' : 'trabajo pendiente'}</span></div>`;
   }).join('') : '<div class="piv-none">Sin cambios de toalla</div>';
   const cliHtml = clientes.length ? clientes.map(c => {
     const cc = cierreMap['cliente|' + c.hab] || {};
     return `<div class="piv-tw"><b>${esc(c.hab)}</b><span style="flex:1">${esc(c.huesped || '')}</span>
       <span style="font-size:11px;font-weight:800;color:${c.avisado ? '#1E8C4E' : '#B7AF9F'}">${c.avisado ? '✓ Confirmado' : 'Sin confirmar'}</span>
+      ${parteSelHtml('cliente|' + c.hab, repAsig['cliente|' + c.hab] || repAsigHab(c.hab))}
       <span class="estado">${cc.hecho ? '✓ hecho' : 'trabajo pendiente'}</span></div>`;
   }).join('') : '<div class="piv-none">Sin limpiezas de cliente</div>';
+  /* tareas extra: las que se agregan al enviar el parte + las que la encargada suma por apto */
+  const pextras = (parte && parte.pextras) || [];
+  const extraApto = []; Object.keys(repExtraTareas || {}).forEach(h => (repExtraTareas[h] || []).forEach(x => extraApto.push({ hab:h, texto:x.texto, hecho:x.hecho })));
+  const nExtra = pextras.length + extraApto.length;
+  const exHtml = nExtra ? pextras.map(x => { const k = 'pextra|' + (x.id || x.hab), c = cierreMap[k] || {};
+      return `<div class="piv-tw"><b>${esc(x.hab || '—')}</b><span style="flex:1;${c.hecho ? 'text-decoration:line-through;color:#B7AF9F' : ''}">${esc(x.desc || '')}</span>${parteSelHtml(k, repAsig[k] || repAsigHab(x.hab))}<span class="estado">${c.hecho ? '✓ hecho' : 'pendiente'}</span></div>`; }).join('')
+    + extraApto.map(x => `<div class="piv-tw"><b>${esc(x.hab)}</b><span style="flex:1;${x.hecho ? 'text-decoration:line-through;color:#B7AF9F' : ''}">${esc(x.texto)}</span><span style="font-size:12px;font-weight:700;color:#8A93A6">${esc(repAsigHab(x.hab) || 'sin asignar')}</span><span class="estado">${x.hecho ? '✓ hecho' : 'pendiente'}</span></div>`).join('')
+    : '<div class="piv-none">Sin tareas extra</div>';
   box.innerHTML = `<div class="piv">
     <div class="piv-head">
       <h2>PARTE DE LIMPIEZA · ART APARTMENTS</h2>
@@ -1703,13 +1727,14 @@ async function renderParteView(){
     <div class="piv-body">
       <div class="piv-h3">Apartamentos a limpiar (${pisos.length}) · ${nLleg} con llegada</div>
       <div style="overflow-x:auto"><table class="pivTbl"><thead><tr>
-        <th>Hab</th><th>Tipo</th><th>Huésped</th><th>Llegada</th><th>Salida</th><th>Hora lleg</th><th>Pax</th><th>Cama</th><th>Priori</th><th>Observa</th><th>Hora salida</th><th>Fondo salida</th><th>Comentarios</th>
+        <th>Hab</th><th>Asignada a</th><th>Tipo</th><th>Huésped</th><th>Llegada</th><th>Salida</th><th>Hora lleg</th><th>Pax</th><th>Cama</th><th>Priori</th><th>Observa</th><th>Hora salida</th><th>Fondo salida</th><th>Comentarios</th>
       </tr></thead><tbody>${rows}</tbody></table></div>
       ${notas.trim() ? `<div class="piv-h3" style="margin-top:22px">Notas para el equipo</div><div style="white-space:pre-wrap;font-size:13.5px;color:#17313B;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px">${esc(notas)}</div>` : ''}
       <div class="piv-2col">
         <div><div class="piv-h3" style="color:#0FA3A3">Cambio de toallas (${toallas.length})</div>${twHtml}</div>
         <div><div class="piv-h3" style="color:#E8A13D">Limpieza de cliente (${clientes.length})</div>${cliHtml}</div>
       </div>
+      <div class="piv-h3" style="margin-top:22px;color:#B5730F">Tareas extra (${nExtra})</div>${exHtml}
       <div class="piv-h3" style="margin-top:22px">Previsión próximos 7 días</div>
       <div class="piv-fc" id="pivFc">${(forecastCache && forecastCacheISO === curISO) ? forecastHtmlFor(forecastCache) : Array.from({length:8}).map(()=>'<div class="fd"><div class="fdate">…</div></div>').join('')}</div>
       <div class="piv-legend">
@@ -1722,6 +1747,19 @@ async function renderParteView(){
     <div class="piv-footer">Se actualiza solo, en vivo · <span id="pivUpdated">actualizado ahora</span> · ART Limpieza</div>
   </div>`;
   if (!forecastCache || forecastCacheISO !== curISO) refreshForecastCache();
+  /* asignar camarera desde el Parte: el desplegable del apto reparte todas sus tareas */
+  box.querySelectorAll('select.pivSel').forEach(sel => sel.addEventListener('change', () => {
+    const hab = sel.dataset.hab, v = sel.value;
+    if (hab){ repTasks().filter(t => t.hab === hab).forEach(t => repSetAsig(repKey(t), v)); }
+    else repSetAsig(sel.dataset.tk, v);
+    setTimeout(renderParteView, 50);
+  }));
+}
+/* quién tiene asignado un apartamento (por su tarea principal o la primera tarea asignada) */
+function repAsigHab(hab){
+  const ts = repTasks().filter(t => t.hab === hab);
+  const piso = ts.find(t => t.kind === 'piso');
+  return (piso && repAsig[repKey(piso)]) || (ts.map(t => repAsig[repKey(t)]).find(a => a && a !== '__TODAS__')) || '';
 }
 
 function setTab(t){
