@@ -228,10 +228,11 @@
 <div class="wrap" id="wrap">
   <div class="none">Cargando…</div>
 </div>
-<div class="wrap" id="repartoWrap" style="display:none">
+<div class="wrap" id="parteWrap" style="display:none">
   <div class="none">Cargando…</div>
 </div>
-<div class="wrap" id="parteWrap" style="display:none">
+<div class="wrap" id="repHeadParte" style="display:none;padding-bottom:0"><div style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#7a746a;border-top:2px solid var(--line);padding-top:18px">Confirmación y supervisión · Camareras · Zonas comunes · Extras</div></div>
+<div class="wrap" id="repartoWrap" style="display:none">
   <div class="none">Cargando…</div>
 </div>
 <div class="wrap" id="fondoWrap" style="display:none">
@@ -567,7 +568,7 @@ function subscribe(){
         const a = document.activeElement;
         if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT')) return;   /* no cortar si está escribiendo */
         if (activeTab === 'fondo') renderFondoTab();
-        else if (activeTab === 'reparto') renderReparto();
+        else if (activeTab === 'reparto' || activeTab === 'parte') renderReparto();
       });
     }).subscribe(status => { if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setTimeout(subscribe, 3000); });
   }catch(e){}
@@ -1410,7 +1411,7 @@ async function renderRepartoInner(opts){
   /* si está escribiendo en un campo de texto de esta pestaña, no la redibujamos ahora
      (se pisaría lo que está tipeando); reintenta solo, apenas termine de escribir. */
   const activo = document.activeElement;
-  if (box.contains(activo) && (activo.tagName === 'INPUT' || activo.tagName === 'TEXTAREA')){
+  if (box.contains(activo) && (activo.tagName === 'INPUT' || activo.tagName === 'TEXTAREA' || activo.tagName === 'SELECT')){
     clearTimeout(renderReparto._retry);
     renderReparto._retry = setTimeout(() => renderReparto(), 1500);
     return;
@@ -1752,7 +1753,7 @@ async function renderParteView(){
     const hab = sel.dataset.hab, v = sel.value;
     if (hab){ repTasks().filter(t => t.hab === hab).forEach(t => repSetAsig(repKey(t), v)); }
     else repSetAsig(sel.dataset.tk, v);
-    setTimeout(renderParteView, 50);
+    setTimeout(() => { renderParteView(); renderReparto(); }, 50);
   }));
 }
 /* quién tiene asignado un apartamento (por su tarea principal o la primera tarea asignada) */
@@ -1772,10 +1773,11 @@ function setTab(t){
   $('empWrap').style.display = t === 'emp' ? '' : 'none';
   if (t === 'emp' && !$('empFrame').getAttribute('src')) $('empFrame').setAttribute('src', 'https://artbcn.github.io/reparto/');
   $('wrap').style.display = t === 'marcar' ? '' : 'none';
-  $('repartoWrap').style.display = t === 'reparto' ? '' : 'none';
+  $('repartoWrap').style.display = (t === 'reparto' || t === 'parte') ? '' : 'none';
+  $('repHeadParte').style.display = t === 'parte' ? '' : 'none';
   $('parteWrap').style.display = t === 'parte' ? '' : 'none';
   $('fondoWrap').style.display = t === 'fondo' ? '' : 'none';
-  if (t === 'reparto') renderReparto();
+  if (t === 'reparto' || t === 'parte') renderReparto();
   if (t === 'parte') renderParteView();
   if (t === 'fondo') renderFondoTab();
 }
@@ -1786,14 +1788,14 @@ $('tabFondo').addEventListener('click', () => setTab('fondo'));
 $('tabEmp').addEventListener('click', () => setTab('emp'));
 
 /* mantener el reparto y la vista de parte sincronizados cuando se recarga (día / realtime) */
-try{ const _lp = loadParte; loadParte = async function(){ await _lp(); if (activeTab === 'reparto') renderReparto(); if (activeTab === 'parte') renderParteView(); }; }catch(e){}
+try{ const _lp = loadParte; loadParte = async function(){ await _lp(); if (activeTab === 'reparto' || activeTab === 'parte') renderReparto(); if (activeTab === 'parte') renderParteView(); }; }catch(e){}
 setInterval(() => { if (activeTab === 'parte' && !document.hidden) loadParte(); }, 10000);
 setInterval(() => {
   const el = $('pivUpdated'); if (!el || !lastParteRefresh) return;
   const s = Math.round((Date.now() - lastParteRefresh) / 1000);
   el.textContent = s < 3 ? 'actualizado ahora' : 'actualizado hace ' + s + 's';
 }, 1000);
-setInterval(() => { if (activeTab === 'reparto' && !document.hidden) renderReparto(); }, 20000);
+setInterval(() => { if ((activeTab === 'reparto' || activeTab === 'parte') && !document.hidden) renderReparto(); }, 20000);
 /* ==================== fin Reparto + supervisión ==================== */
 
 loadParte();
