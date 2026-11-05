@@ -120,6 +120,14 @@
   .tabbar{ display:flex; max-width:1100px; margin:0 auto; padding:10px 14px 0; overflow-x:auto }
   .tabbar .tab{ flex:1; border:none; background:transparent; font-family:inherit; font-size:15px; font-weight:700; color:var(--soft); padding:12px 8px; white-space:nowrap; cursor:pointer; border-bottom:3px solid transparent }
   .tabbar .tab.active{ color:var(--ink); border-bottom-color:var(--teal) }
+  .zcWrap{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:8px}
+  .zc{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+  .zc.ok{background:#f1faf4}
+  .zc1{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .zcn{font-size:13.5px}
+  .zc1 select{padding:4px 6px;font-size:12.5px;max-width:120px}
+  .zc2{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px}
+  .zcNew{display:flex;gap:6px;margin:8px 0 18px}
   .rsummary{ font-family:'IBM Plex Mono',monospace; font-size:13px; color:var(--soft); text-align:center; padding:6px }
   .rep-emp{ background:#fff; border:1px solid var(--line); border-radius:14px; padding:12px 14px; margin:10px 0 }
   .chips{ display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 0 }
@@ -235,6 +243,7 @@
 <div class="wrap" id="parteWrap" style="display:none">
   <div class="none">Cargando…</div>
 </div>
+<div class="wrap" id="zonasParte" style="display:none"></div>
 <div class="wrap" id="fondoWrap" style="display:none">
   <div class="none">Cargando…</div>
 </div>
@@ -1411,7 +1420,7 @@ async function renderRepartoInner(opts){
   /* si está escribiendo en un campo de texto de esta pestaña, no la redibujamos ahora
      (se pisaría lo que está tipeando); reintenta solo, apenas termine de escribir. */
   const activo = document.activeElement;
-  if (box.contains(activo) && (activo.tagName === 'INPUT' || activo.tagName === 'TEXTAREA' || activo.tagName === 'SELECT')){
+  if ((box.contains(activo) || ($('zonasParte') && $('zonasParte').contains(activo))) && (activo.tagName === 'INPUT' || activo.tagName === 'TEXTAREA' || activo.tagName === 'SELECT')){
     clearTimeout(renderReparto._retry);
     renderReparto._retry = setTimeout(() => renderReparto(), 1500);
     return;
@@ -1503,25 +1512,22 @@ async function renderRepartoInner(opts){
       ${extraChecklist(hab)}
     </div>`;
   });
-  let diariaHtml = `<div class="rgrp">Zonas comunes (${diariaTasks.length})</div>`;
+  let diariaHtml = `<div id="zonasBlock"><div class="rgrp" style="margin-top:6px">Zonas comunes (${diariaTasks.length})</div><div class="zcWrap">`;
   diariaTasks.forEach(t => {
     const c = cierreMap[repKey(t)] || {}, done = !!c.declarado, confirmado = !!c.hecho;
     if (done) hechas++; if (confirmado) confirmadas++;
     const a = repAsig[repKey(t)] || '';
-    const tareasHtml = t.tareas.map((x, i) => `<span class="exItem">${esc(x)}<span class="exx zDelTask" data-zid="${esc(t.base)}" data-i="${i}">×</span></span>`).join('');
-    diariaHtml += `<div class="rep-item ${done ? 'hecho' : ''}">
-      <div class="rtop"><span class="hab" style="font-size:15px">${esc(t.hab)}</span>${repTag(t)}${confirmado ? '<span class="pill hecho">✓ confirmado</span>' : done ? '<span class="pill" style="background:#fdf0d9;color:#a9741a">declarado</span>' : '<span class="pill pend">pendiente</span>'}</div>
-      <div class="rep-row"><select data-tk="${esc(repKey(t))}">${optsForDaily(a)}</select><button class="repHecho${confirmado ? ' on' : ''}" data-kind="${esc(t.kind)}" data-base="${esc(t.base)}" style="margin-left:8px;border:1px solid var(--line);background:${confirmado ? '#1E8C4E' : '#fff'};color:${confirmado ? '#fff' : 'var(--ink)'};border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;white-space:nowrap">${confirmado ? '✓ Hecho' : 'Marcar hecho'}</button></div>
-      <div class="rep-extra">
-        <div class="rep-extra-lbl">Tareas de esta zona${t.tareas.length ? ' (' + t.tareas.length + ')' : ''}</div>
-        ${tareasHtml ? `<div class="exList">${tareasHtml}</div>` : ''}
-        <div class="exAddRow"><input class="exInput zTaskInput" data-zid="${esc(t.base)}" placeholder="agregar tarea a esta zona..."><button class="exAddBtn zAddTask" data-zid="${esc(t.base)}">Agregar</button></div>
-      </div>
-      <div style="margin-top:6px;text-align:right"><a href="#" class="zDel" data-zid="${esc(t.base)}" data-nombre="${esc(t.hab)}" style="font-size:12px;color:var(--soft)">Quitar esta zona</a></div>
+    const tareasHtml = t.tareas.map((x, i) => `<span class="exItem" style="margin:0">${esc(x)}<span class="exx zDelTask" data-zid="${esc(t.base)}" data-i="${i}">×</span></span>`).join('');
+    diariaHtml += `<div class="zc${confirmado ? ' ok' : ''}">
+      <div class="zc1"><b class="zcn">${esc(t.hab)}</b>
+        <span class="pill ${confirmado ? 'hecho' : 'pend'}" style="${done && !confirmado ? 'background:#fdf0d9;color:#a9741a' : ''}">${confirmado ? '✓ confirmado' : done ? 'declarado' : 'pendiente'}</span>
+        <select data-tk="${esc(repKey(t))}">${optsForDaily(a)}</select>
+        <button class="repHecho${confirmado ? ' on' : ''}" data-kind="${esc(t.kind)}" data-base="${esc(t.base)}" style="border:1px solid var(--line);background:${confirmado ? '#1E8C4E' : '#fff'};color:${confirmado ? '#fff' : 'var(--ink)'};border-radius:9px;padding:5px 9px;font-weight:700;font-size:12.5px;cursor:pointer;white-space:nowrap">${confirmado ? '✓ Hecho' : 'Marcar hecho'}</button>
+        <a href="#" class="zDel" data-zid="${esc(t.base)}" data-nombre="${esc(t.hab)}" title="Quitar esta zona" style="font-size:12px;color:var(--soft);margin-left:auto">quitar</a></div>
+      <div class="zc2">${tareasHtml}<input class="exInput zTaskInput" data-zid="${esc(t.base)}" placeholder="+ tarea" style="flex:1;min-width:90px;padding:5px 8px;font-size:12.5px"><button class="exAddBtn zAddTask" data-zid="${esc(t.base)}" style="padding:5px 10px;font-size:12.5px">+</button></div>
     </div>`;
   });
-  diariaHtml += `<div class="rep-extra" style="margin:10px 0 18px"><div class="rep-extra-lbl">Agregar una zona nueva</div>
-    <div class="exAddRow"><input class="exInput" id="zNewName" placeholder="nombre de la zona (ej: GARAJE)"><button class="exAddBtn" id="zNewAdd">Agregar zona</button></div></div>`;
+  diariaHtml += `</div><div class="zcNew"><input class="exInput" id="zNewName" placeholder="nueva zona (ej: GARAJE)" style="padding:6px 9px;font-size:13px"><button class="exAddBtn" id="zNewAdd" style="padding:6px 12px;font-size:13px">Agregar zona</button></div></div>`;
   if (!tasks.length) listHtml = '<div class="none">No hay parte para este día.</div>';
   let extraLogHtml = '';
   if (repExtraLogs.length){
@@ -1604,6 +1610,9 @@ async function renderRepartoInner(opts){
     for (const h of Object.keys(repExtraTareas)) repExtraTareas[h] = repExtraTareas[h].filter(e => e.id !== x.dataset.id);
     renderReparto({ cached:true }); repDelExtraTarea(x.dataset.id);
   }));
+  /* en Parte, las zonas comunes van abajo del parte (ya tienen sus eventos puestos: moverlas no los pierde) */
+  const zp = $('zonasParte'), zb = $('zonasBlock');
+  if (zp){ if (activeTab === 'parte' && zb){ zp.innerHTML = ''; zp.appendChild(zb); } else if (activeTab !== 'parte'){ zp.innerHTML = ''; } }
 }
 
 /* ==================== Vista "Parte" en vivo (igual al parte que se comparte) ==================== */
@@ -1775,6 +1784,7 @@ function setTab(t){
   $('wrap').style.display = t === 'marcar' ? '' : 'none';
   $('repartoWrap').style.display = (t === 'reparto' || t === 'parte') ? '' : 'none';
   $('repHeadParte').style.display = t === 'parte' ? '' : 'none';
+  $('zonasParte').style.display = t === 'parte' ? '' : 'none';
   $('parteWrap').style.display = t === 'parte' ? '' : 'none';
   $('fondoWrap').style.display = t === 'fondo' ? '' : 'none';
   if (t === 'reparto' || t === 'parte') renderReparto();
