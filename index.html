@@ -330,7 +330,8 @@ function setDone(kind, hab, hecho){
   pendingWrites[key] = (pendingWrites[key] || 0) + 1;
   writeChains[key] = (writeChains[key] || Promise.resolve()).then(async () => {
     const row = cierreMap[key];   /* siempre el último estado que dejaste */
-    if (row && sb){ try{ await sb.from('limp_cierre').upsert(row); }catch(e){} }
+    /* solo escribe el campo que cambió (hecho): así no pisa la nota que otro puso desde otra pantalla */
+    if (row && sb){ try{ await sb.from('limp_cierre').upsert({ id: row.id, fecha: row.fecha, kind: row.kind, hab: row.hab, hecho: row.hecho, src: row.src, updated_at: row.updated_at }); }catch(e){} }
   }).then(() => { pendingWrites[key]--; if (pendingWrites[key] <= 0) delete pendingWrites[key]; });
   return writeChains[key];
 }
@@ -339,7 +340,8 @@ async function setNota(kind, hab, nota){
   const prev = cierreMap[key] || {};
   const row = { id: curISO + '|' + kind + '|' + hab, fecha: curISO, kind, hab, hecho: !!prev.hecho, declarado: prev.declarado||false, declarado_at: prev.declarado_at||null, sup: prev.sup||false, nota, src: SB_TAB, updated_at: new Date().toISOString() };
   cierreMap[key] = row;
-  if (sb){ try{ await sb.from('limp_cierre').upsert(row); }catch(e){} }
+  /* solo escribe la nota (no toca hecho / declarado de otros) */
+  if (sb){ try{ await sb.from('limp_cierre').upsert({ id: row.id, fecha: row.fecha, kind: row.kind, hab: row.hab, nota: row.nota, src: row.src, updated_at: row.updated_at }); }catch(e){} }
 }
 async function addExtra(hab, nota){
   const id = curISO + '|extra|' + hab + '-' + Date.now().toString(36);
@@ -516,6 +518,7 @@ function wireItems(){
     if (note){
       let t = null;
       note.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => setNota(kind, hab, note.value.trim()), 500); });
+      note.addEventListener('blur', () => { clearTimeout(t); const v = note.value.trim(); if (v !== ((cierreMap[kind + '|' + hab] || {}).nota || '')) setNota(kind, hab, v); });
     }
   });
 }
