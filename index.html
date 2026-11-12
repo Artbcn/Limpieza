@@ -999,7 +999,8 @@ function periodIsDone(task, win, target){
     return new Date() < next;
   }
   if (!win) return fromISO(String(d).slice(0,10)).getFullYear() === new Date().getFullYear();   /* manual: vale como hecho solo durante el año en que se marcó; el 1/1 vuelve a pendiente (la fecha queda en el historial) */
-  const coveredWin = periodCurrentWindow(task, fromISO(d));
+  const markedDate = fromISO(String(d).slice(0,10));
+  const coveredWin = periodCurrentWindow(task, markedDate);
   if (!coveredWin) return false;
   /* al empezar un período nuevo todo vuelve a pendiente: solo cuenta como hecho si la fecha cae DENTRO de la ocurrencia actual (la fecha queda guardada en "Última vez") */
   if (win && win.key && coveredWin.key !== win.key) return false;
@@ -1051,6 +1052,9 @@ async function publicarFondosRW(){
   }catch(e){}
 }
 function renderTrackerRW(task){
+  try{ renderTrackerRW0(task); }catch(e){ const b = document.getElementById('ptrack-' + task.id); if (b) b.innerHTML = '<div style="font-size:12px;color:#b3261e">No pude armar la lista de apartamentos (' + esc(e.message) + '). Tocá Fondo de nuevo o recargá la app.</div>'; }
+}
+function renderTrackerRW0(task){
   const box = document.getElementById('ptrack-' + task.id); if (!box) return;
   const nota = t => `<div style="font-size:12.5px;color:var(--soft);font-style:italic">${t}</div>`;
   if (task.inactiva){ box.innerHTML = nota('\u23f8 Tarea inactiva: tiene su programaci\u00f3n guardada pero no se ofrece ni se cuenta hasta que la actives.'); return; }
