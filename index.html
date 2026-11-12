@@ -282,6 +282,7 @@ let parte = null;
 let cierreMap = {};   /* kind|hab -> row */
 
 /* ====== datos ====== */
+const lpState = { sig:'', iso:'', same:false, dayChanged:false };
 let loadSeq = 0;             /* para descartar respuestas viejas si se pisan dos cargas */
 const pendingWrites = {};    /* kind|hab -> cantidad de guardados en curso (lo que tocaste y todavía no llegó al servidor) */
 const writeChains = {};      /* un guardado por vez y por casillero, en orden */
@@ -289,17 +290,19 @@ async function loadParte(){
   const seq = ++loadSeq;
   if (!sb){ parte = null; cierreMap = {}; render(); return; }
   let newParte = null; const newMap = {};
-  try{
-    const r = await sb.from('limp_parte').select('data').eq('fecha', curISO).maybeSingle();
-    newParte = (r.data && r.data.data) || null;
-  }catch(e){ newParte = null; }
+  /* las 3 consultas van EN PARALELO (antes una detrás de otra) */
+  const [rP, rF, rC] = await Promise.all([
+    sb.from('limp_parte').select('data').eq('fecha', curISO).maybeSingle().then(r => r, () => ({})),
+    sb.from('limp_parte').select('fecha,data').gte('fecha', curISO).order('updated_at', { ascending:false }).limit(6).then(r => r, () => ({})),
+    sb.from('limp_cierre').select('*').eq('fecha', curISO).then(r => r, () => ({}))
+  ]);
+  newParte = (rP && rP.data && rP.data.data) || null;
   /* La previsión de cada día queda "congelada" cuando se publicó ese parte. Si Recepción publicó después otro día
      (con In House o confirmaciones más nuevas), usamos esa previsión más fresca para los días que le tocan. */
   try{
     if (newParte){
-      const r2 = await sb.from('limp_parte').select('fecha,data').gte('fecha', curISO).order('updated_at', { ascending:false }).limit(6);
       let best = null;
-      for (const row of (r2.data || [])){
+      for (const row of ((rF && rF.data) || [])){
         const d = row.data || {}; const g = d.generatedAt || 0;
         if (d.prevision && d.prevision.length && (!best || g > best.g)) best = { g, prev: d.prevision };
       }
@@ -310,13 +313,15 @@ async function loadParte(){
       }
     }
   }catch(e){}
-  try{
-    const r = await sb.from('limp_cierre').select('*').eq('fecha', curISO);
-    for (const c of (r.data || [])) newMap[c.kind + '|' + c.hab] = c;
-  }catch(e){}
+  for (const c of ((rC && rC.data) || [])) newMap[c.kind + '|' + c.hab] = c;
   if (seq !== loadSeq) return;   /* ya hay una carga más nueva en camino */
   /* lo que acabás de tocar y todavía se está guardando manda sobre lo que devuelve el servidor */
   for (const k of Object.keys(pendingWrites)) if (cierreMap[k]) newMap[k] = cierreMap[k];
+  /* si no cambió nada, no redibujamos (era lo que "congelaba" la pantalla cada 10 s) */
+  const sig = JSON.stringify([newParte, newMap]);
+  lpState.dayChanged = (curISO !== lpState.iso);
+  if (sig === lpState.sig && !lpState.dayChanged){ lastParteRefresh = Date.now(); lpState.same = true; return; }
+  lpState.sig = sig; lpState.iso = curISO; lpState.same = false;
   parte = newParte; cierreMap = newMap;
   render();
 }
@@ -1019,9 +1024,12 @@ const fondoSelKeyRW = () => 'art-fondosel-' + curISO;
 const fondoSelRW = () => lsGet(fondoSelKeyRW(), {});
 /* aptos de este día que SALEN: ventana (sale y entra otro) o vacío (sale y queda libre) */
 function aptosDeSalidaRW(){
-  return ((parte && parte.pisos) || []).filter(p => p.obs === 'sucia')
-    .map(p => ({ hab: p.hab, huesped: p.huesped, tipo: p.tipo === 'llegada' ? 'ventana' : 'vacio' }))
-    .sort((a, b) => String(a.hab).localeCompare(String(b.hab), undefined, { numeric:true }));
+  const sal = ((parte && parte.pisos) || []).filter(p => p.obs === 'sucia')
+    .map(p => ({ hab: p.hab, huesped: p.huesped, tipo: p.tipo === 'llegada' ? 'ventana' : 'vacio' }));
+  /* + los pisos libres todo el día (sin huésped ni movimiento): también se les pueden asignar tareas de fondo */
+  const ya = new Set(sal.map(x => x.hab));
+  const libres = ((parte && parte.libres) || []).filter(h => !ya.has(h)).map(h => ({ hab: h, huesped: '', tipo: 'libre' }));
+  return sal.concat(libres).sort((a, b) => String(a.hab).localeCompare(String(b.hab), undefined, { numeric:true }));
 }
 let ignoreParteHasta = 0;   /* para no avisarnos de un cambio que hicimos nosotros */
 async function publicarFondosRW(){
@@ -1031,7 +1039,7 @@ async function publicarFondosRW(){
   for (const a of aptosDeSalidaRW()){
     const acciones = pf.filter(({ task, occ }) => !periodIsDone(task, occ, a.hab) && !!(sel[a.hab] && sel[a.hab].includes(task.id)))
       .map(({ task, occ }) => ({ key: occ.key, label: (task.checkoutLabel || task.label) }));
-    if (acciones.length) fondos.push({ hab: a.hab, huesped: a.huesped, acciones });
+    if (acciones.length) fondos.push({ hab: a.hab, huesped: a.huesped, acciones, libre: a.tipo === 'libre' });
   }
   parte.fondos = fondos;
   ignoreParteHasta = Date.now() + 4000;
@@ -1047,7 +1055,7 @@ function renderTrackerRW(task){
   const nota = t => `<div style="font-size:12.5px;color:var(--soft);font-style:italic">${t}</div>`;
   if (task.inactiva){ box.innerHTML = nota('\u23f8 Tarea inactiva: tiene su programaci\u00f3n guardada pero no se ofrece ni se cuenta hasta que la actives.'); return; }
   const day = fromISO(curISO);
-  if (!parte || !(parte.pisos || []).length){ box.innerHTML = nota('Todavía no hay parte cargado para este día: cuando lo generen, acá aparecen los aptos que salen.'); return; }
+  if (!parte || !((parte.pisos || []).length || (parte.libres || []).length)){ box.innerHTML = nota('Todavía no hay parte cargado para este día: cuando lo generen, acá aparecen los aptos que salen.'); return; }
   const p = task.period || { type:'manual' };
   if (p.type === 'manual'){ box.innerHTML = nota('Sin período: elegí arriba cuándo toca (mes, rango o cada N meses) para poder asignarla a los aptos.'); return; }
   const pf = pendingCheckoutFondos(day).find(x => x.task.id === task.id);
@@ -1057,9 +1065,11 @@ function renderTrackerRW(task){
     return;
   }
   const targets = aptosDeSalidaRW();
-  if (!targets.length){ box.innerHTML = nota('Ningún apartamento sale este día.'); return; }
+  if (!targets.length){ box.innerHTML = nota('Ningún apartamento sale ni está libre este día.'); return; }
   const sel = fondoSelRW();
-  const tag = tipo => tipo === 'ventana'
+  const tag = tipo => tipo === 'libre'
+    ? '<span style="font-size:10px;font-weight:800;padding:1px 6px;border-radius:8px;background:#e4eefb;color:#2563a8;margin-left:4px">LIBRE</span>'
+    : tipo === 'ventana'
     ? '<span style="font-size:10px;font-weight:800;padding:1px 6px;border-radius:8px;background:#fdf0d9;color:#9a6a0a;margin-left:4px">VENTANA</span>'
     : '<span style="font-size:10px;font-weight:800;padding:1px 6px;border-radius:8px;background:#e3f4ea;color:#1E8C4E;margin-left:4px">VACÍO</span>';
   let pend = 0;
@@ -1677,7 +1687,10 @@ async function renderParteView(){
   /* si está eligiendo una camarera, no redibujar (se le cerraría el desplegable) */
   if (box.contains(document.activeElement) && document.activeElement.tagName === 'SELECT'){ clearTimeout(renderParteView._retry); renderParteView._retry = setTimeout(renderParteView, 1500); return; }
   if (parteBusy){ renderParteView._again = true; return; } parteBusy = true;
-  try{ await Promise.all([repLoadEmp(), repLoadAsig(), repLoadExtraTareas()]); }catch(e){}
+  /* si cargamos esto hace menos de 8 s (y es el mismo día) no vamos de nuevo al servidor */
+  const fresh = renderParteView._t && (Date.now() - renderParteView._t < 8000) && renderParteView._iso === curISO && !renderParteView._force;
+  if (!fresh){ try{ await Promise.all([repLoadEmp(), repLoadAsig(), repLoadExtraTareas()]); renderParteView._t = Date.now(); renderParteView._iso = curISO; }catch(e){} }
+  renderParteView._force = false;
   parteBusy = false; renderParteView._again = false;
   lastParteRefresh = Date.now();
   const pisos = (parte && parte.pisos) || [];
@@ -1687,6 +1700,12 @@ async function renderParteView(){
   const notas = (parte && parte.notas) || '';
   const fondoByHab = {}; fondos.forEach(f => { fondoByHab[f.hab] = f.acciones || []; });
   const nLleg = pisos.filter(p => p.tipo === 'llegada').length;
+  const pisoHabs = new Set(pisos.map(p => p.hab));
+  const fondoLibres = fondos.filter(f => !pisoHabs.has(f.hab));
+  const flHtml = fondoLibres.length ? fondoLibres.map(f => {
+    const k = 'fondo|' + f.hab, c = cierreMap[k] || {};
+    return `<div class="piv-tw"><b>${esc(f.hab)}</b><span class="rtag" style="background:#e4eefb;color:#2563a8;font-size:10px;font-weight:800;padding:1px 6px;border-radius:8px">LIBRE</span><span style="flex:1">${esc((f.acciones || []).map(a => a.label).join(', '))}</span>${parteSelHtml(k, repAsig[k] || '')}<span class="estado">${c.hecho ? '✓ hecho' : 'trabajo pendiente'}</span></div>`;
+  }).join('') : '';
   const rows = pisos.map(p => {
     const c = cierreMap['piso|' + p.hab] || {};
     const prio1 = String(p.priori).trim() === '1';
@@ -1747,6 +1766,7 @@ async function renderParteView(){
         <div><div class="piv-h3" style="color:#0FA3A3">Cambio de toallas (${toallas.length})</div>${twHtml}</div>
         <div><div class="piv-h3" style="color:#E8A13D">Limpieza de cliente (${clientes.length})</div>${cliHtml}</div>
       </div>
+      ${flHtml ? `<div class="piv-h3" style="margin-top:22px;color:#2563a8">Limpieza de fondo en pisos libres (${fondoLibres.length})</div>${flHtml}` : ''}
       <div class="piv-h3" style="margin-top:22px;color:#B5730F">Tareas extra (${nExtra})</div>${exHtml}
       <div class="piv-h3" style="margin-top:22px">Previsión próximos 7 días</div>
       <div class="piv-fc" id="pivFc">${(forecastCache && forecastCacheISO === curISO) ? forecastHtmlFor(forecastCache) : Array.from({length:8}).map(()=>'<div class="fd"><div class="fdate">…</div></div>').join('')}</div>
@@ -1765,7 +1785,7 @@ async function renderParteView(){
     const hab = sel.dataset.hab, v = sel.value;
     if (hab){ repTasks().filter(t => t.hab === hab).forEach(t => repSetAsig(repKey(t), v)); }
     else repSetAsig(sel.dataset.tk, v);
-    setTimeout(() => { renderParteView(); renderReparto(); }, 50);
+    setTimeout(() => { renderParteView(); renderReparto({cached:true}); }, 50);
   }));
 }
 /* quién tiene asignado un apartamento (por su tarea principal o la primera tarea asignada) */
@@ -1801,14 +1821,22 @@ $('tabFondo').addEventListener('click', () => setTab('fondo'));
 $('tabEmp').addEventListener('click', () => setTab('emp'));
 
 /* mantener el reparto y la vista de parte sincronizados cuando se recarga (día / realtime) */
-try{ const _lp = loadParte; loadParte = async function(){ await _lp(); if (activeTab === 'reparto' || activeTab === 'parte') renderReparto(); if (activeTab === 'parte') renderParteView(); }; }catch(e){}
-setInterval(() => { if (activeTab === 'parte' && !document.hidden) loadParte(); }, 10000);
+try{ const _lp = loadParte; loadParte = function(){
+  /* varios avisos seguidos (realtime + polling) se juntan en UNA sola carga */
+  clearTimeout(loadParte._deb);
+  return new Promise(res => { loadParte._deb = setTimeout(async () => {
+    await _lp();
+    if (!lpState.same){ if (activeTab === 'reparto' || activeTab === 'parte') renderReparto({cached: !lpState.dayChanged}); if (activeTab === 'parte') renderParteView(); }
+    res();
+  }, 250); });
+}; }catch(e){}
+setInterval(() => { if (activeTab === 'parte' && !document.hidden) loadParte(); }, 20000);
 setInterval(() => {
   const el = $('pivUpdated'); if (!el || !lastParteRefresh) return;
   const s = Math.round((Date.now() - lastParteRefresh) / 1000);
   el.textContent = s < 3 ? 'actualizado ahora' : 'actualizado hace ' + s + 's';
 }, 1000);
-setInterval(() => { if ((activeTab === 'reparto' || activeTab === 'parte') && !document.hidden) renderReparto(); }, 20000);
+setInterval(() => { if ((activeTab === 'reparto' || activeTab === 'parte') && !document.hidden) renderReparto(); }, 60000);
 /* ==================== fin Reparto + supervisión ==================== */
 
 loadParte();
